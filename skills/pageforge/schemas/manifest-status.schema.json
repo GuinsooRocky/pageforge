@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "manifest-status",
+  "title": "[MANIFEST] 组件 status 受控枚举",
+  "description": "pageforge [MANIFEST] (component-manifest.md) 中每个 NW-*/RU-* 组件的 status 字段唯一合法集合。跨 agent dispatch single source of truth。修改后必须同步 SKILL.md §[MANIFEST] status 受控集合 表格。",
+  "type": "string",
+  "enum": [
+    "不存在，需新建",
+    "复用现有",
+    "figma_node_missing",
+    "待 step 3 确认",
+    "内联复用",
+    "内联重写",
+    "已有可复用",
+    "已有需改造",
+    "同功能已有"
+  ],
+  "x-producer-by-value": {
+    "不存在，需新建": "visual-analyzer (step 2)",
+    "复用现有": "visual-analyzer (step 2)",
+    "figma_node_missing": "visual-analyzer (step 2)",
+    "待 step 3 确认": "visual-analyzer (step 2, transitional — must be upgraded by step 3 Phase 2)",
+    "内联复用": "tech-solution-generator (step 3 Phase 2, E-class probe)",
+    "内联重写": "tech-solution-generator (step 3 Phase 1, step 2.0.5)",
+    "已有可复用": "tech-solution-generator (step 3 Phase 2, D-class probe)",
+    "已有需改造": "tech-solution-generator (step 3 Phase 2, D-class probe)",
+    "同功能已有": "tech-solution-generator (step 3 Phase 2, D-class probe)"
+  },
+  "x-lifecycle-invariant": "step 3 Phase 2 完成后，[MANIFEST] 中禁止残留 `待 step 3 确认` 值 — 必须升级为终态值。下游 step 4/5 遇到 `待 step 3 确认` 必须 fail-fast。"
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nw-components",
+  "title": "[TEMPLATE_SUMMARY] nw_components 状态表 row schema",
+  "description": "pageforge [TEMPLATE_SUMMARY] (template-gen-summary.md) 中 `## nw_components 状态表` 每一行的字段约束。由 step 4 page-template-gen 写入；step 4-C / step 5-B / 手工复跑入口按 status 字段 dispatch。",
+  "type": "object",
+  "required": ["nw_id", "path", "status", "is_client"],
+  "additionalProperties": false,
+  "properties": {
+    "nw_id": {
+      "type": "string",
+      "pattern": "^NW-\\d+$",
+      "description": "来自 [TECH_FE] §4 表格的 NW-* 编号，格式 NW-NNN（数字）"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/",
+      "description": "NW-*.tsx 绝对路径，必须以 `/` 开头（基于 [CODE_BASELINE] M2 source_root）"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "skeleton-failed"],
+      "description": "step 4-B 单文件 loop 产物状态。ok=骨架成功，skeleton-failed=失败保留 placeholder div + TODO 注释"
+    },
+    "is_client": {
+      "type": ["boolean", "string"],
+      "enum": [true, false, "-"],
+      "description": "'use client' 4 条件判定结果（hooks / browser API / event handler / imports client）。status=skeleton-failed 时填 `-`"
+    },
+    "failure_reason": {
+      "type": ["string", "null"],
+      "description": "status=skeleton-failed 时必填，简述失败原因（一行）；ok 时填 `-` 或留空"
+    }
+  },
+  "x-table-format": "markdown table with 5 columns: | nw_id | path | status | is_client | failure_reason |",
+  "x-dispatch": {
+    "ok": "step 4-C 替换 placeholder 为 <Component />；step 5-B 填业务逻辑",
+    "skeleton-failed": "step 4-C 保留 placeholder div；step 5-B 整组跳过；[LOGIC_SUMMARY] 末尾登记复跑入口"
+  }
+}

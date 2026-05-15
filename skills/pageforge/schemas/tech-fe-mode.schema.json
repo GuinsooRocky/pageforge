@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "tech-fe-mode",
+  "title": "[TECH_FE] frontmatter `模式:` 字段受控枚举",
+  "description": "pageforge [TECH_FE] (tech-fe.md) frontmatter `模式:` 字段唯一合法集合。step 4 page-template-gen 按本字段做 mode 分支 dispatch（mode single source of truth）。",
+  "type": "string",
+  "enum": ["brownfield", "greenfield", "mixed"],
+  "x-semantics": {
+    "brownfield": "改造已有页面",
+    "greenfield": "新建页面",
+    "mixed": "多页面同时混合（页数 ≥ 2 且既有 brownfield 又有 greenfield；frontmatter `pages:` 列表必须非空且 ≥ 2 项）"
+  },
+  "x-producer": "tech-solution-generator (step 3)",
+  "x-consumer": "page-template-gen (step 4) — 内部 4-A/4-B/4-C 三阶段按本字段做 mode 分支"
+}
