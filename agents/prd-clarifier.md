@@ -26,12 +26,23 @@ skills:
    > **§14 canonical store**：[CLARIFY_FE] §14 自身就是项目级偏好的唯一权威（跨 PRD 持续累积），无需从其他文档同步；与 [CODE_BASELINE] M9（规则文件路径索引）是两类不同内容，不构成 dual-write
 2. 调用 `prd-analyzer` 技能，完整执行 PRD 澄清文档生成流程；prd-analyzer 在生成 §9 待确认项时，**遇到能命中项目级默认的题，直接采纳默认答并合并到正文**，不放进 §9 表
 3. 读取 prd-analyzer 写出的 [CLARIFY_FE]，统计剩下 §9 待确认项数量（即没被默认覆盖的）、§10 设计稿优先项数量、§11/§12/§13 是否走占位、§14 默认值条目数
+3.1. **§12 内聚性复核（绝对内聚判据，强制）**：§12「复用 vs 新建清单」是组件颗粒度的源头，一步出粗后面 step 补不回。读完 §12 后，对每个新建候选 NW-* 逐个做绝对内聚性复核——**不对照历史 component count、不对照人工实现的文件数（数数法已作废）**，只看该 NW-* 是否命中多个「该独立」信号：
+   - ① 持有 **≥2 个互不相关的 state 簇**（如「搜索关键词 state」+「筛选 tab state」+「列表数据 state」分属不相关职责）
+   - ② 锚定 **PRD 多个不相关子节**（§X.A + §Y.B + … 跨主题）
+   - ③ 渲染 **≥3 个职责独立的 UI 区域**（如 搜索框 + 筛选条 + 列表 + 条目卡）
+   命中 **≥2 个信号** → 该 NW-* 内聚性不足，在 §12 该 NW-* 行尾追加标注 `> ⚠️ 建议再拆（内聚性复核命中信号：①/②/③ 中的哪几个）`。命中 0~1 个 → 不标。
+   这道复核只标注、不擅自改 §12 拆法——标注供主 Agent 在 §9 回写时一并呈现给用户拍板，也供下游 tech-solution-generator step 3 组件清单复核接力。判定记入 step 4 返回的元信息（`cohesion_flagged=N`）。
+3.2. **FSM / 多态识别启发式（强制 —— state-extractor 砍后的上游承接）**：扫 PRD 原文（[ORIGIN_PRD] / 用户输入）找「同一实体多态 / 状态机」信号——命中词：`状态对照表`、`草稿态` / `已发布`、`draft` vs `published`、`A 态 vs B 态`、`状态机` / `FSM`、`xx 态时` / `不同状态下`、`首次 vs 再次`、`新建 vs 编辑`。
+   - 命中某实体多态信号、且该差异**未被现有 §9 待确认项覆盖** → 追加一条 §9 待确认：`识别到 <实体> 可能存在多态（<态1> vs <态2>），请确认：各态下 UI 元素 / 可用动作 / 文案 的差异维度（逐维列出）`。
+   - **目的**：把「实体多态」前移到澄清阶段暴露并由用户逐维确认，避免下游 tech-solution-generator §5 / 生成阶段把多态压扁成单态（v2 实测：「草稿态 vs 编辑已发布态」7 维度差异被压扁成 4 维度）。澄清结论是 tech-solution-generator §5「多态/状态机识别」段写 discriminator + 各态 render 分支的判据。
+   - 已知枚举 / proto 类型路径（如 `WorldCardStatus` 对应的 proto enum）在此识别到时，一并按 step 6 登记进 §14 项目级默认（供 tech-solution-generator §5.5 契约对账表的 enum 形状对齐 proto 数值，不靠命名直觉）。
+   - 命中数记入 step 4 返回元信息（`fsm_flagged=N`）；本步只追加 §9 待确认 / §14 默认，不擅自定多态拆法。
 3.5. **生成 HTML 追问清单（落桌面 · new0.0.3 新增）**：调脚本将 §9 + §10 渲染成单 HTML 文件，落到用户桌面便于真人对照阅读
    - 命令：`node .claude/skills/pageforge/scripts/clarify-html-gen.mjs --clarify .claude/docs/clarify-fe-prd.md --output "$HOME/Desktop/qa-clarify-$(date +%Y%m%d-%H%M%S).html" [--feature <feature-name>]`
    - 脚本 stdout 输出 JSON：`{"output":"<绝对路径>","q_count":N,"o_count":M}`，本 agent 必须把 `output` 字段透传给主 Agent（见 step 4 返回模板）
    - 若 q_count + o_count = 0（无任何待答项）→ 跳过 HTML 生成，直接走 step 4 返回常规模板
    - 若 Write 权限被拒（首次跑用户未 allow `~/Desktop/` 写入）→ agent 直接 fail，提示用户在 Claude Code 权限提示中 allow 后重跑
-4. 执行完成后返回**三段**输出（不返回文档正文，仅路径 + 元信息 + 主 agent 指令）：
+4. 执行完成后**必须立即在同一 turn 内**返回**三段**输出（不返回文档正文，仅路径 + 元信息 + 主 agent 指令），然后**主动触发 end_turn**——禁止跑完最后一个 Edit/Bash 后停下沉默等"什么时候算完"（详见 `agents/_common/streaming-safety.md` §完成信号）：
    - **第一行**：文件路径，例：`✅ 澄清文档：.claude/docs/clarify-fe-prd.md`
    - **第二行**（仅 q_count + o_count > 0 时）：`📄 HTML 追问清单：<step 3.5 stdout output 字段绝对路径>`
    - **第三段**：固定格式的「主 Agent 必须执行的下一动作」指令（见下方模板）
@@ -60,6 +71,7 @@ skills:
    - 一次性问完，不要分批吊用户胃口
 3. **§10 处理**：主 Agent 必须把每条 O-XXX 作为"已默认采用设计稿"的决策呈现给用户做最终确认（不是问题，是 confirm-or-veto）
 4. **§11/§12/§13 已由 [CODE_BASELINE] 直接填**（step 0 已前置）：仅当 [CODE_BASELINE] 是 `greenfield-empty` 占位时，明确告知用户"全新仓无现有代码可参照，三段标 N/A"，无需另跑 code-baseline
+4.1 **§12 内聚性复核结果呈现**：若 §12 中有 NW-* 行带 `> ⚠️ 建议再拆` 标注，主 Agent 必须把这些项作为「内聚性提示」连同 §9 一并呈现给用户——每条列出 NW-* 名 + 命中的信号（①≥2 state 簇 / ②跨多个 PRD 子节 / ③≥3 独立 UI 区域），让用户决定「采纳再拆 / 维持」。这不是阻塞项，是给用户的一次「源头颗粒度」校正机会；用户决定后，主 Agent 在 §12 该行把 `⚠️ 建议再拆` 改为 `✅ 已采纳再拆（拆分意图：…）` 或 `维持不拆（用户确认）`，下游 tech-solution-generator step 3 据此终态处理
 5. 收到用户答复后，主 Agent 按以下规则回写 [CLARIFY_FE]：
    - §9 中确认采纳建议或采纳用户改写的，移到对应章节正文里作为已定稿描述；§9 表只保留"待 PM / 待 Figma"项
    - §10 用户全确认 → 段落保留；用户否决某条 → 改回 PRD 原描述并加备注说明；用户改写某条（提供新的视觉/文案）→ 该 O 项的"最终采用"列改为用户给的新值

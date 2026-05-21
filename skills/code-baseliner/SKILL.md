@@ -218,6 +218,30 @@ manifest:
   - `CONVENTIONS.md` ✅ / ❌
   - `CONTRIBUTING.md` ✅ / ❌
 
+### M2 归置约定（必探；下游 step 4 按此放新文件，不要全塞一棵树）
+
+扫现有源码，归纳"不同类型的文件落在哪个目录"，写成 `placement_convention`：
+
+- `modal_dir`: 弹窗 / 对话框归置目录（探测既有弹窗文件落在哪 —— 如 `components/Modal/` 独立目录，还是和业务组件混放）
+- `hook_dir`: 自定义 hook 归置目录（如 `hooks/` 根，还是 `hooks/<feature>/` 按功能分子目录）
+- `util_dir`: 工具函数归置目录（如 `utils/<feature>/`）
+- `store_split`: 状态 store 是单文件还是按场景拆多文件（探测既有 store 文件数 / 命名）
+- `feature_layout`: 单个 feature 的组件是扁平放一个目录，还是嵌套子目录
+
+> 探测方法：对既有同类 feature（找一个体量相近的现有功能模块）做 `ls` + `glob`，归纳它的文件分布。下游 page-template-gen 按此约定决定新文件落点。
+
+### M2 命名约定（必探）
+
+扫既有源码归纳 `naming_convention`：
+
+- `dialog_suffix`: 弹窗组件文件名后缀（`XxxModal.tsx` / `XxxDialog.tsx` / 其他 —— 取项目多数派）
+- `endpoint_split`: 双端组件如何拆（`.mobile.tsx` / `.pc.tsx` 文件名后缀约定 / `XxxMobile.tsx` 驼峰 / 子目录分 / 纯 CSS 媒体查询不拆 —— 取项目多数派）
+- `component_case`: 组件文件名大小写（PascalCase / kebab-case）
+
+> 根因：不探测命名约定会导致生成的弹窗用错后缀、双端拆分方式与项目不一致。
+
+### M2 brownfield 改造阈值（可选；缺省走默认值）
+
 ### M2 brownfield 改造阈值（可选；缺省走默认值）
 
 供 tech-solution-generator step 3 Phase 1 步骤 2.0.5「最小改造判定」消费。项目方可在此声明覆盖默认：

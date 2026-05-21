@@ -17,12 +17,60 @@ skills:
 | 阶段 | 动作 | brownfield 4.1 中的体现 | greenfield 4.2 中的体现 |
 |---|---|---|---|
 | **4-A page-skeleton** | 页面级文件准备 | 不产 page.tsx；准备 §4.2 新建文件 + §4.3 改动定位 | 调 `m0-template-gen` 产 page.tsx 含 placeholder div |
-| **4-B component-skeleton** | 对每个 status=`不存在，需新建` 的 NW-*，**按 NW-* loop 单次单文件**产骨架（'use client' 4 条件判定 + 写 [TEMPLATE_SUMMARY] nw_components 状态表）；单条失败 fallback 写 status=`skeleton-failed` 不抛主流程 | §4.2 逐条新建（步骤 2 节） | 同左（§4.2 逐条新建） |
+| **4-B component-skeleton** | 单次 dispatch 处理**一个** status=`不存在，需新建` 的 NW-*，产骨架（'use client' 4 条件判定 + return 带回行数据，主 Agent 收口写 [TEMPLATE_SUMMARY]）；失败 fallback return `status=skeleton-failed` 不抛主流程 | §4.2 逐条新建（步骤 2 节） | 同左（§4.2 逐条新建） |
 | **4-C 收尾 aggregator** | (a) 替换 page.tsx 里 status=`ok` 的 placeholder div → 真实 import + `<X />`；保留 status=`skeleton-failed` 的 (b) OR 聚合所有 status=`ok` 的 NW-* `is_client` → 改 page.tsx 顶部 'use client' | §4.3 改动现有文件（注入 NW-* import + JSX） | greenfield-only 子节（见下方 §4.2 中的 4-C 子节） |
 
 > mode 分支（brownfield / greenfield / mixed）由 [TECH_FE] frontmatter `模式:` 字段决定，是横向分支；阶段（4-A/4-B/4-C）是纵向时间顺序，二者正交。
 
 ### 通用规则（4-B / 4-C 跨 mode 共享）
+
+#### 4-B 输入 = 单个 NW-* 切片（batch=1）
+
+step 4-B 一律 batch=1：你被调度执行 4-B 时只处理**一个 NW-***。dispatch prompt 给你该 NW-* 的切片路径 `[SLICE_DIR]NW-xxx.slice.md`（主 Agent 已调 `nw-slicer.mjs` 抽好；分节结构见 `pageforge/schemas/nw-slice.schema.json`）。
+
+- **只 Read 该切片**，**禁止** Read 整份 [TECH_FE] / [MANIFEST] / [CODE_BASELINE] —— 切片已含本 NW-* 所需全部上下文：A1（§4 表格行）/ A2（§5 逻辑方案，首行带 PRD 出处锚）/ A3（manifest 节段，status + design_tokens 全字段 + placement + wraps + deps 块）/ A4（§4.0 足迹，brownfield）/ A8（§4.2 最小改造判定）/ B1（项目底座 M1/M2/M4/M5/M7/M9）/ B2（step2_mode）/ B3（模式）/ B5（sibling 目录 + manifest deps：每个依赖 NW-* 的 status + import 路径 + 内联/import 指令）/ **B7（import 白名单 —— 写 import 时必须命中本表，事前预防"幽灵 import"）** / **B8（禁忌生码 pattern —— 写代码时禁止任何一条）**。
+
+> **依赖契约 —— 据此写正确 import，不要盲标 upstream-gap**：切片 B5 sibling 目录 + A3 manifest deps 块给出本 NW-* 的依赖关系（consume 哪些 NW-* 的 component / types / atoms + 定义方 NW-* 的文件路径 + status）。当某类型 / atom 的定义方 NW-* 在 B5/deps 已列出（如 `WorldCardDraft` 来自某 atom store NW-*），生成骨架时**必须据此写正确的 import / 类型引用**（路径按该 NW-* 在 B5 的文件路径推导），**不要盲写 `// TODO upstream-gap`**。只有 B5/deps 里**确实查不到**某依赖时才允许标 upstream-gap。
+- **入场先按 `pageforge/SKILL.md` §B.3 自盘点**：目标 .tsx 已存在且为非空骨架 → 直接 return `already done`，不重写覆盖。
+- 产出后 return；verify 子阶段（4-B-verify）由主 Agent 另起 `nw-verifier` dispatch，不在你职责内。
+
+#### 4-B 生码硬约束（**先于 Write 执行；切片 B7 + B8 已含完整 spec**）
+
+**写代码前必须 Read 切片的 B7（import 白名单）+ B8（禁忌生码 pattern）+ B9（跨 NW-* 契约形状）三节**，那里已列出：
+- B7 三类合法 import 来源（deps.consumes 的 NW-* / baseline M2-M9 既有符号 / NPM 包）+ 禁止行为 + 正确替代方向
+- B8 9 类禁忌 pattern（callback undefined / 空函数 / console stub / setter never called / memo 空数组 / state write-only / const 空数组消费 / const 空串走死分支 / 具名处理器空体）+ 每条 why_bad + correct_alternative
+- B9（若非「（无）」）跨 NW-* 契约形状：写回义务（必须真正写回的 atom 字段）+ 消费形状（hook 返回键 / atom 字段 / enum 成员名权威清单，骨架阶段先按形状定 props/类型，勿臆造字段）+ owner 导出形状。**enum 数值不在 B9（不可信）**：骨架若需 enum 默认值，`import` proto 成员（禁字面量/禁手编数值），找不到标 `// TODO upstream-gap`
+
+**违反代价**：
+- 违反 B7（凭空 import 未交付下游 / barrel 未 export 符号） → 5-C 第二关 `[IMPORT_RESOLVER]` 硬 fail，喂回重生成（≤2 次）
+- 违反 B8（写出任一禁忌 pattern） → 5-C 第四关 `[DEAD_STATE_SCANNER]` 软警告追加进阻塞账本，由用户人工修
+
+**自查省一回炉**：B7/B8 是 dispatch 前注入的事前约束（与 5-C 事后扫描双层防御）。写 import / 写 state 前对照切片 B7/B8 自查，比被 5-C 抓回来重做省 ≥1 轮 opus 推理。
+
+#### 4-B token-fidelity 硬约束（**先于其他规则执行**）
+
+产该 NW-*.tsx 骨架前，**必须**：
+
+1. **读切片 B2 节拿 `step2_mode`**：
+   - `2.A` / `2.C` → 进入"严格模式"
+   - `2.B` → 进入"宽松模式"
+   - 缺 → 默认按 `2.B` 宽松（向后兼容）
+
+2. **读切片 A3 节的 `design_tokens` 字段**（spacing / color / font / border_radius / shadow / opacity / blur）
+
+3. **按 mode 执行**：
+
+   | step2_mode | design_tokens 缺失字段时的兜底 | 写 className 时的源 |
+   |---|---|---|
+   | **2.A / 2.C 严格** | NW-*.tsx 顶部注释标 `// figma-token-missing: <字段名>`（被 step 5.5 figma-review 抓出来手补） | 严格按切片 A3 节 design_tokens 的真值写 Tailwind class，**禁止用通用默认值兜底**（`rounded-lg` / `gap-2` / `text-sm` / `py-2` 等都不允许，除非真值就是这个等效值） |
+   | **2.B 宽松** | 按切片 A2 节（§5 描述）兜底，标 `// figma-token-fallback: <字段> via §5` | 优先 A3 真值；缺失字段用项目通用 token 兜底；事后 step 5.5 figma-review 抓 gap |
+
+4. **Tailwind 任意值（arbitrary value）写法约束**：
+   - design_tokens 中的真值若没法用 Tailwind 预设 class 表达（如 `font-weight: 700` 项目无 `font-bold` token，或 `border-radius: 14px` 项目无 `rounded-[14px]` 预设），用 Tailwind arbitrary `font-[700]` / `rounded-[14px]` / `text-[14px]` / `leading-[20px]` 等
+   - 浮点 px 值（如 Figma 给出 `76.42px`）必须向下取整或在 className 注释标 `// figma-fractional: 76.42 → 76`，**禁止**直接 inline 浮点 — 项目 ESLint 通常拒收
+   - 色值优先项目 token（`bg-white-1` / `text-black-3`），缺 token 时用 arbitrary `bg-[rgb(255,255,255)]`
+
+5. **Tailwind class 拼接遵循 `.claude/rules/tailwind.md`**：`twMerge` / `twJoin` 选择按规则定，不要用 `classNames()`
 
 #### 'use client' 4 条件判定（仅 RSC 项目，如 Next.js App Router）
 
@@ -37,27 +85,38 @@ skills:
 
 #### partial success fallback（4-B 单 NW-* 失败时）
 
-4-B 单个 NW-* 产骨架失败时（如：Figma node 解析失败 / [TECH_FE] §5 描述不完整 / Write 文件冲突），**不 fail-fast 主流程**，按以下兜底：
+你这次 dispatch 只处理**一个 NW-***。产骨架失败时（Figma node 解析失败 / 切片 A2 §5 描述不完整 / Write 文件冲突），**不 fail-fast、不抛异常**：
 
-1. 在 page.tsx 该 NW-* 位置保留 `<div data-placeholder="X" />` + 加注释 `{/* TODO step4-retry: <NW-id> 骨架生成失败，原因 <failure_reason> */}`
-2. 写 [TEMPLATE_SUMMARY] nw_components 状态表，对该 NW-* 设 `status=skeleton-failed` + `failure_reason=<一行描述>`
-3. 继续处理下一个 NW-*（loop 不中断）
+1. 目标 .tsx 不落坏文件（可不落盘，或落一个带 `// TODO step4-retry: <NW-id> 骨架生成失败` 注释的最小占位）。
+2. 返回格式第 2 行带回 `status=skeleton-failed` + `failure_reason=<一行原因>`，主 Agent 据此回写状态表、并在 4-C 阶段于 page.tsx 保留该 NW-* 的 placeholder div。
+3. 正常 return，**不自己重试**——重试由主 Agent 按 `pageforge/SKILL.md` §B.4 决定（≤2 次重 dispatch）。
 
-step 4-C / step 5-B 后续会按 status 字段跳过该 NW-*。
+step 4-C / step 5-B 后续按主 Agent 写入的 status 字段跳过该 NW-*。
 
-#### [TEMPLATE_SUMMARY] nw_components 状态表写入
+#### nw_components 行数据（M4：你 return 带回，主 Agent 收口写表）
 
-每完成一个 NW-* 骨架（无论成功失败），追加一行到 [TEMPLATE_SUMMARY] 的 `## nw_components 状态表` 节：
+**你不写 [TEMPLATE_SUMMARY]**——M4 并行化后，状态表由**主 Agent 单一收口**（见 `pageforge/SKILL.md` §B.2，避免 K 并发槽写写冲突）。你的职责是产出 .tsx，并在返回格式里结构化带回本 NW-* 的行数据，主 Agent 据此回写一行。行字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `nw_id` | string | [TECH_FE] §4 表格 NW-* 编号（如 NW-002） |
+| `nw_id` | string | 切片 A1 节（§4 表格行）的 NW-* 编号（如 NW-002） |
 | `path` | string | 该 NW-*.tsx 绝对路径 |
 | `status` | enum | `ok`（骨架已写）/ `skeleton-failed`（产骨架失败） |
 | `is_client` | bool | 'use client' 4 条件判定结果 |
-| `failure_reason` | string? | status=`skeleton-failed` 时填，一行描述 |
+| `failure_reason` | string? | status=`skeleton-failed` 时填一行描述；其余填 `-` |
+| `verify_status` | enum | **不归你**——主 Agent 在 verify 子阶段后回填（`verified` / `verify-failed-giveup`）；status=`skeleton-failed` 由主 Agent 写 `skipped` |
 
-**写入时机**：4-B loop 内每个 NW-* 处理结束（成功或失败）就追加一行；不要等 4-B 全部完成再统一写。
+#### 4-B 单 NW-* 返回格式（final message）
+
+跑完即用 plain text 输出以下三段作为 final message：
+
+```
+✅/❌ step 4-B <NW-id>
+nw_id=<NW-id> | path=<绝对路径> | status=<ok / skeleton-failed> | is_client=<true / false> | failure_reason=<- 或一行原因>
+一句话：<生成了什么结构 / 失败原因>
+```
+
+第 2 行的 `key=value` 串是给主 Agent 解析回写 nw_components 表的——字段名、顺序、分隔符 `|` 不要改。
 
 #### 4-C 收尾 aggregator（greenfield 必跑；brownfield 沿用 §4.3 改动）
 
@@ -109,9 +168,11 @@ node [PAGE_AGGREGATOR] \
 
 ## 环境变量
 
-- [TECH_FE] = `.claude/docs/tech-fe.md`
-- [CODE_BASELINE] = `.claude/docs/code-baseline.md`
-- [MANIFEST] = `.claude/docs/fig_meta/component-manifest.md`
+- [SLICE_DIR] = `.claude/docs/_slices/` ← **4-B 子阶段唯一输入目录**；dispatch prompt 给定具体 `NW-xxx.slice.md` 路径
+- [TEMPLATE_SUMMARY] = `.claude/docs/template-gen-summary.md` ← 产物（nw_components 状态表 6 列）
+- [TECH_FE] = `.claude/docs/tech-fe.md` ← 仅 4-A / 4-C 子阶段读；**4-B 禁读**（改读切片）
+- [CODE_BASELINE] = `.claude/docs/code-baseline.md` ← 同上（4-B 改读切片 B1 节）
+- [MANIFEST] = `.claude/docs/fig_meta/component-manifest.md` ← 同上（4-B 改读切片 A3 节）
 
 ---
 
@@ -140,7 +201,7 @@ node [PAGE_AGGREGATOR] \
 
 ## 完成
 
-执行完成后**只返回极简摘要（3 行以内）**，不返回代码内容，以避免占用主 Agent 上下文：
+Postcondition 自检（下方 §Postcondition 自检章节）通过后，**必须立即在同一 turn 内**输出以下极简摘要作为 final assistant message，然后**主动触发 end_turn**——禁止 schema validator 跑完后停下沉默等"什么时候算完"（详见 `agents/_common/streaming-safety.md` §完成信号）。不返回代码内容，以避免占用主 Agent 上下文：
 
 ```
 ✅ step 4 page-template-gen 完成
@@ -164,9 +225,10 @@ validator-pass-token: <从 schema-validator stdout 复制>
    - **exit 2**（stderr 列出违规项）→ 按 stderr 提示自己 Edit [TEMPLATE_SUMMARY] 修违规项 → 回到 1 重跑校验
 3. step 4 校验项（覆盖最常见漂移）：
    - `## nw_components 状态表` 节存在
-   - 表格列数严格 == 5（nw_id / path / status / is_client / failure_reason）
+   - 表格列数严格 == 6（nw_id / path / status / is_client / failure_reason / verify_status）
    - 每行 status ∈ {ok, skeleton-failed}
    - 每行 path 必须以 `/` 开头（绝对路径）
    - 每行 is_client ∈ {true, false, -}
+   - 每行 verify_status ∈ {verified, verify-failed-giveup, skipped, -}
 4. **最多重试 3 次**；3 次仍 fail → return error summary（含最后一次 stderr 全文），让主 Agent 决定是否回滚到 step 3
 5. **禁止跳过校验直接 return**——主 Agent 收到不带 `validator-pass-token` 的 return 会拒绝并要求重跑

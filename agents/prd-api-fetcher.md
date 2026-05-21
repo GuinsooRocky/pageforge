@@ -1,7 +1,7 @@
 ---
 name: prd-api-fetcher
 description: 负责获取原始PRD和接口API文档的子Agent。PRD 输入支持两种形态：A=远端文档 URL，B=聊天形态（文本+0..N 张附件图）。接口文档支持远端 doc URL 或 <INTERNAL_API_PLATFORM>。必须使用 origin-prd-gen 技能获取原始PRD，必须使用 api-doc-gen 技能获取接口文档。
-model: haiku
+model: sonnet
 background: false
 skills:
   - origin-prd-gen
@@ -29,7 +29,7 @@ skills:
 2. 调用 `origin-prd-gen` 技能，按对应分支完整执行 PRD 拉取和沉淀流程，产物落 `[ORIGIN_PRD]`
 3. **识别 API 输入**：用户是否提供了接口文档链接或 `<INTERNAL_API_PLATFORM>` 接口地址
 4. 若有 API 输入 → 调用 `api-doc-gen` 技能，完整执行接口文档生成流程，产物落 `[API]`；若用户明确说明本需求无接口（如 UI 改造），则跳过此步
-5. 任务完成后**只输出一行极简摘要**（仅文件路径，无内容），例如：
+5. 任务完成后**必须立即在同一 turn 内**输出一行极简摘要（仅文件路径，无内容），然后**主动触发 end_turn**——禁止跑完最后一个 Edit/Bash 后停下沉默（详见 `agents/_common/streaming-safety.md` §完成信号），例如：
    - `✅ PRD: .claude/docs/origin-prd.md | API: .claude/docs/api.md`
    - 或 `✅ PRD: .claude/docs/origin-prd.md | API: 无接口（UI 改造）`
 

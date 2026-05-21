@@ -18,8 +18,12 @@
 | 文件 | 用途 | 消费者 |
 |------|------|-------|
 | `manifest-status.schema.json` | [MANIFEST] 组件 status 9 枚举 | schema-validator step 2/3 + visual-analyzer + tech-solution-generator |
-| `nw-components.schema.json` | [TEMPLATE_SUMMARY] nw_components 表 row schema | schema-validator step 4 + page-template-gen + page-logic-gen |
+| `nw-components.schema.json` | [TEMPLATE_SUMMARY] nw_components 表 row schema（6 列，含 `verify_status`）| schema-validator step 4 + page-template-gen + page-logic-gen |
 | `tech-fe-mode.schema.json` | [TECH_FE] frontmatter `模式:` 枚举 | schema-validator step 3 + page-template-gen |
+| `nw-slice.schema.json` | per-NW-* 切片文件 (`NW-xxx.slice.md`) 结构契约（lever ②）| nw-slicer.mjs（产出方）+ page-template-gen / page-logic-gen / nw-verifier（消费方）|
+| `component-graph.schema.json` | NW-* 组件依赖图 `deps` 块（`provides` / `consumes`）结构契约 | tech-solution-generator（产出方，step 3 §2.3）+ dag-validator.mjs（解析建图找环/dangling-dep）+ nw-slicer.mjs（解析 `consumes` 拼 B7 import 白名单）|
+
+> 前 3 个是 `enum`/row 受控 schema，由 `schema-validator.mjs` 加载做运行时校验；`nw-slice.schema.json` 描述 markdown 切片文档结构，由 `nw-slicer.mjs` 产出自检 + `nw-verifier` 按节对照；`component-graph.schema.json` 描述 [MANIFEST] 内 `deps` 块的 markdown 嵌套结构，由 `dag-validator.mjs` + `nw-slicer.mjs` 解析消费。后两个都不进 schema-validator 运行时校验。
 
 ## 引用方式（sub-agent prompt）
 

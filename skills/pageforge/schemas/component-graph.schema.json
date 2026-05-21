@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "component-graph",
+  "title": "NW-* 组件依赖图节点契约（[MANIFEST] 结构化 deps 块）",
+  "description": "pageforge 修复 A 地基。定义 [MANIFEST] 中每个 NW-* 组件的结构化 deps 块 —— 它对外暴露什么 (provides) + 它依赖谁 (consumes)。这是 deps 结构的唯一权威定义 (single source of truth)：tech-solution-generator (step 3) 按本 schema 产出 deps 块、dag-validator.mjs 按本 schema 解析建图、nw-slicer.mjs (A3) 后续按本 schema 切边。x-file-format 说明它在 markdown 里的落地形态。修改本文件必须同步 SKILL.md §B.5 与 schemas/README.md 文件清单。",
+  "type": "object",
+  "x-file-format": "markdown。每个 NW-* 在 [MANIFEST] 的 `## N {name}（NW-xxx）` block 下，以一个 `- **deps**:` 嵌套列表承载。嵌套结构见 x-markdown-shape；旧版扁平写法 `- **deps**: [NW-002, NW-005]` 已废弃、不再产出（dag-validator.mjs 仍向后兼容解析以不破坏历史 manifest）。",
+  "x-markdown-shape": "  - **deps**:\n    - provides: { component: WorldCardList, types: [WorldCardListProps], atoms: [] }\n    - consumes:\n      - { from: NW-016, kind: type, name: WorldCardDraft }\n      - { from: NW-016, kind: atom, name: worldCardCreateStore }\n      - { from: NW-003, kind: callback, name: onCardClick }\n      - { from: NW-002, kind: render, name: WorldCardItem }",
+  "required": ["nw_id", "provides", "consumes"],
+  "properties": {
+    "nw_id": {
+      "type": "string",
+      "pattern": "^NW-\\d+$",
+      "description": "本节点的 NW-* id。来源 = 所属 [MANIFEST] block 标题 `（NW-xxx）`，deps 块本身不重复写，解析时由 dag-validator 从 block 标题取。"
+    },
+    "provides": {
+      "type": "object",
+      "description": "本 NW-* 对外暴露的契约 —— 其它 NW-* 能 consume 的东西。空字段省略或给空数组均可（叶子组件可能只 provides.component）。",
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "type": "string",
+          "description": "本 NW-* 导出的主组件名（通常 = NW-* 的组件名）。若该 NW-* 是 inline-rewrite（不产文件）则省略。"
+        },
+        "types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "本 NW-* 定义并对外导出的 TypeScript 类型 / interface 名（如 WorldCardDraft、WorldCardListProps）。被其它 NW-* 的 consumes.kind=type 引用。"
+        },
+        "atoms": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "本 NW-* 定义的 Jotai atom / store 名（如 worldCardCreateStore）。被其它 NW-* 的 consumes.kind=atom 引用。根因 5 的核心：WorldCardDraft 类 + 共享 atom 的 owner 必须在此显式声明。"
+        }
+      }
+    },
+    "consumes": {
+      "type": "array",
+      "description": "本 NW-* 依赖的其它 NW-* 契约清单。每条 = 一条有向边 (本 NW-* → from)。无依赖时给空数组 []。dag-validator 用 from 字段建图找环；nw-slicer (A3) 用 kind+name 切精确入/出边。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "kind", "name"],
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^NW-\\d+$",
+            "description": "被依赖的 NW-* id（契约的提供方）。必须是同 [MANIFEST] 内存在的 NW-*；指向不存在的 NW-* → dag-validator 报 dangling-dep。"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["render", "type", "callback", "atom"],
+            "description": "依赖种类。render=本组件渲染 from 提供的子组件 / type=本组件用了 from 定义的 TS 类型 / callback=本组件接收 from 传下来的回调 prop / atom=本组件读写 from 定义的 atom。"
+          },
+          "name": {
+            "type": "string",
+            "description": "被依赖契约的具体符号名。kind=render → 子组件名（对应 from.provides.component）；kind=type → 类型名（对应 from.provides.types[]）；kind=atom → atom 名（对应 from.provides.atoms[]）；kind=callback → 回调 prop 名。"
+          }
+        }
+      }
+    }
+  },
+  "x-edge-semantics": {
+    "direction": "consumes 条目 `{from: NW-Y}` 表示有向边 本NW-X → NW-Y（X 依赖 Y）。dag-validator DFS 沿此方向找环；拓扑分层时 Y 必须先于 X 生成。",
+    "kind-render": "本 NW-* 在 JSX 里渲染 from 的组件。nw-slicer 据此把 from 列入本片 B7 import 白名单（来源 1）；5-C import-resolver 兜底查实际 import 是否解析得到。",
+    "kind-type": "本 NW-* 引用 from.provides.types 里的类型。根因 5 主场景：10 个组件 consume NW-016 的 WorldCardDraft；nw-slicer 据此把 from 的类型契约列入 B7 白名单，免去盲写 upstream-gap。",
+    "kind-callback": "本 NW-* 通过 props 接收 from 传下来的回调。dead-state-scanner 软警告 onConfirm={undefined} 类空回调；契约对账靠 step 3 契约表 + nw-verifier。",
+    "kind-atom": "本 NW-* 读写 from 定义的 atom。nw-slicer 据此把 atom 契约列入 B7 白名单 + B4 全局 store 契约节。"
+  },
+  "x-producer": "tech-solution-generator (step 3 Phase 1/2)。每个未被 OoS/inline-rewrite 剔除的 NW-* 必须产出 deps 块，不是可选。",
+  "x-consumers": {
+    "dag-validator.mjs": "解析 deps 块建有向图：找环 (DFS 三色) + 找 dangling-dep。单一职责，不再产 edges.json（旧 --emit-edges 体系 2026-05-21 已砍）。",
+    "nw-slicer.mjs": "直接解析每个 NW-* 的 deps.consumes 块，拼出 B7 import 白名单（来源 1：本 NW-* 可从哪些 NW-* import 哪些符号、import 路径），防幽灵 import。"
+  },
+  "x-backward-compat": "dag-validator.mjs 同时接受旧扁平写法 `- **deps**: [NW-002]` 与本 schema 的嵌套 consumes 块；扁平写法仅参与找环（无 kind/name）。新产出一律走嵌套块。零 deps 的历史 manifest 仍自动 pass。"
+}

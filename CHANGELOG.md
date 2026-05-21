@@ -1,5 +1,129 @@
 # pageforge 版本演进
 
+## new0.0.5（2026-05-17 ～ 05-22）
+
+> **触发原因**：在 onlychat-agg-tuning worktree 里对 pageforge 做了多轮实跑调优，本次把调优成果回落进 agg。改动均源自真实跑批暴露的问题——sub-agent socket 中断、step 推进的"自动化体感"、视觉精度与排期不确定性。
+> **来源**：onlychat-agg-tuning worktree 实跑回落（非借鉴外部项目）。回落时已对 worktree 引入的项目特定示例做去具体化（换通用例 / 占位符），保持 agg 跨项目通用。
+> **一期落地（05-17）**：全自动推进 + 暂停白名单、step 2 视觉分析三档模式、大批量 NW-\* 分批续跑机制（§B）、step 5.5 figma-review 验收、埋点足迹二级保险、workflow-evaluator 能力评估元 Agent。
+> **二期补充（05-22 回落，见下「二期」节）**：generate-then-verify 回路 + nw-verifier 子 Agent、跨 NW-\* 契约对账（事前注入 §5.5 → B9 → V5）、确定性死状态 / 幽灵 import 扫描、pageforge-prep 产出规范化层、第二/三波减法收敛（砍 5-D / state-extractor / V5 对抗扫描）。
+
+---
+
+### N0.0.5-1 · 全自动推进 + 暂停白名单（§X 重写）
+
+step 完成后**默认自动推进**下一步，每步只输出简短总结（耗时 / 产物 / validator token / 关键发现）。仅 3 类情况允许暂停：① QA / 澄清需用户回答 ② 必需输入缺失 ③ 机制故障需用户决策"续跑 vs 重跑 vs 跳过"。纯粹的"step N → N+1"**禁止**用 AskUserQuestion 问"要不要继续"。
+
+> 原 §X 是"每步必须等用户确认完成"——实跑下来用户只能机械回"继续"、毫无自动化感，故反转默认值。
+
+### N0.0.5-2 · step 2 视觉分析三档模式 + token-fidelity 硬约束
+
+step 2 调度前用 AskUserQuestion 让用户选 `step2_mode`（按 NW-\* 规模 / 新建占比 / O-\* 数自动给建议默认）：
+
+| 档位 | 耗时 | 适用 |
+|---|---|---|
+| 2.B 轻量 | ~7 min | 小修小补，design_tokens 不 inline |
+| 2.C 中量 | ~14 min | 大 brownfield PRD，inline 真 tokens |
+| 2.A 深度 | ~35 min | pixel-perfect 验收 / 全新页面，全量 IoU |
+
+`step2_mode` 写入 [MANIFEST] frontmatter；step 4-B 新增 **token-fidelity 硬约束**：2.C / 2.A 下必须按 manifest 真 token 写 className，禁止 `rounded-lg` / `gap-2` 之类通用默认值兜底，缺值处标 `// figma-token-missing`。visual-analyzer 内部按 mode 走三档分支。
+
+### N0.0.5-3 · §B 大批量 NW-\* 分批续跑机制（new）
+
+sub-agent 稳定在 5-9 min / 40-58 tool uses 触达 socket 中断窗口，单 agent 扛不住几十个 NW-\*（实战单 agent ~28 个即断）。新增 §B：
+
+- **批次粒度实测校准**：4-B 组件骨架 8 个 / 批，5-B 组件逻辑 6 个 / 批（5-B 含 Edit 往返，单文件成本高 30-60%，故粒度更低）
+- **批间严格串行** + **grep 自盘点续跑**：每批入场先 `find` / grep 探测已落盘部分，只补未完成的；增量落盘，断点可任意续
+- **§B.6 完成信号补丁**：worktree 内 `.claude/agents/*.md` 未注册为 subagent_type，须用 general-purpose 包装跑，dispatch 时强制挂"完成后立刻 STOP"补丁，否则每批白等 600s watchdog
+
+### N0.0.5-4 · step 5.5 figma-review 视觉验收步（new）
+
+step 5 + 5-C postcondition pass 后自动跳 `/figma-review`，对 status=ok 的 NW-\*.tsx 与 [MANIFEST] figma_node 做事后对照，产 `figma-review-diff.md`（light/dark/PC/mobile 四轨视觉 gap + 建议改法）。**不修代码**，仅产 diff 供用户 polish。2.C / 2.A 默认开，2.B 询问，NW-\* ≤ 5 可跳。
+
+### N0.0.5-5 · 埋点足迹二级保险（step 3 限制④）
+
+footprint.json 中 `tracking_calls` 类足迹（脚本输出 `protected_footprint` 显式标记）**禁止登记进 §4.6 删除授权清单**——即使 PRD 明确要求"改埋点"也只走加法。埋点误删后果是数据线静默断裂、极难在回归发现，故单设此保险，**优先级高于 §4.6 通用授权删除规则**（一票否决）。
+
+### N0.0.5-6 · 其它
+
+- **§E 各步预估耗时表**（new）：用于排期与瓶颈定位，区分"实测校准" / "估算"来源
+- **[AGENTS_DIR] 环境变量**：显式化 `.claude/agents/` 位置 + worktree dispatch 说明
+- **code-baseliner**：M2 新增"归置约定"（探 `placement_convention`：弹窗 / hook / util 目录归置）+ "命名约定"（探 `naming_convention`）
+- **prd-analyzer**：§9 新增主动扫描要求——术语一致性扫（同对象多名 / 同名多义）+ 逐端交互完整性扫（每页返回 / 关闭 / 提交在 PC 与 Mobile 是否都定义）
+
+### N0.0.5-7 · workflow-evaluator 工作流能力评估元 Agent（new）
+
+新增 `agents/workflow-evaluator.md`：opus 元 Agent，对 pageforge 类工作流做**纯静态 spec 审计**（不运行工作流），沿 7 个能力维度产一份加权能力分报告（总分 0-100）。
+
+针对"同一份 spec 跑 10 次飘 2-3 次"的根因——单 Agent 注意力被整份 spec 摊薄、凭印象出分——用三层机制保证可复现：① **维度物理隔离**（每维度派独立 sub-agent，各拿限定 rubric + 文件清单）② **证据绑定打分**（每个 rubric 项须附 `file:line` + 原文引用，无证据强制判 0）③ **确定性汇总**（维度主分按公式算，协调者只做加法、禁止主观调整总分）。
+
+**影响文件**（16 个，自 onlychat-agg-tuning worktree 回落）：
+
+| 区域 | 文件 |
+|---|---|
+| pageforge skill | `SKILL.md`、`scripts/footprint-extractor.mjs`、`scripts/schema-validator.mjs` |
+| 其它 skill | `code-baseliner/SKILL.md`、`prd-analyzer/skill.md`、`prd-analyzer/template.md` |
+| agents | `visual-analyzer.md`、`tech-solution-generator.md`、`page-template-gen.md`、`page-logic-gen.md`、`prd-clarifier.md`、`prd-api-fetcher.md`、`project-baseliner.md`、`workflow-evaluator.md`（new）、`_common/streaming-safety.md`、`_refs/tech-solution-generator/phase-2-probing.md` |
+
+---
+
+### 二期补充（2026-05-22 回落 · 05-18～05-21 worktree 实跑）
+
+> 一期回落后又跑了若干轮 fresh-run（世界卡 PRD 全量 / 写回簇半量实测），暴露的摩擦按**结构性根因归主题收敛、不逐条打补丁**（防屎山）。详细 dev 史见 `skills/pageforge/CHANGELOG.md`。
+
+#### N0.0.5-8 · generate-then-verify 回路 + nw-verifier 子 Agent（new · lever ③）
+
+新增 `agents/nw-verifier.md`（opus、只读审计）：对**单个 NW-\***拿「切片（规格）+ 生成的 .tsx（成品）」做语义层逐项核对，覆盖 §5 逻辑 / design_token / PRD 约束 / brownfield 足迹 / 跨 NW-\* 契约五类（V1~V5），产 verdict + 失败修正指令。**judge 模式**（核 spec 落地是否到位），不做对抗扫描——把生成与验证的"理解"彻底解耦，才能抓出生成时的系统性误读。
+
+#### N0.0.5-9 · 跨 NW-\* 契约对账：事前注入（§5.5 → B9 → V5）
+
+替代路线图「新建对账表 + V6（~300 行）」的过度设计，复用 B7/B8 同款「事前注入」：
+
+- step 3 产 **§5.5 跨 NW-\* 契约对账表**（`契约符号 | kind | owner | 形状 | 写回义务`）
+- `nw-slicer.mjs` 解析 §5.5 → 注入每个 NW-\* 切片 **B9 节**（写回义务 / 消费形状 / owner 导出三视角），生成 sub-agent 据此精确消费、不臆造字段
+- nw-verifier **V5 契约对账**维度逐字段核对（写回字段齐全 / 消费形状不臆造 / owner 导出齐全）
+- **enum 硬约束**：§5.5/B9 enum 形状只写 **proto 源路径 + 成员名、严禁数值**（实测手抄 proto 数值全抄错）；消费方一律 import proto 成员，V5 只核"是否 import proto + 成员语义对"，不拿数值判对错
+
+#### N0.0.5-10 · 确定性死状态 / 幽灵 import 扫描（替代对抗 verify）
+
+- `dead-state-scanner.mjs`：9 类死状态确定性扫描，含 `handler-noop`（具名处理器空体 `const handleX = () => {}`）——直接命中 tsc 永远抓不到的 no-op handler 真 bug
+- `import-resolver.mjs`：5-C 第二关，jsonc-aware tsconfig paths 解析，防"盲写 import → 编译期硬崩"幽灵符号
+- **设计教训**：对抗扫描用确定性脚本 / 固定 grep pattern，**不**让 opus 子 Agent 反复挑刺（retry 上限内不收敛、烧 opus 换 0 修复）
+
+#### N0.0.5-11 · pageforge-prep 产出规范化层（new）
+
+`pageforge-prep.mjs`：治"agent 手写产出 ↔ 脚本严格解析"格式漂移。`normalize-manifest`（统一 manifest header 形状）+ `init-summary`（从 manifest 自动生成 template-summary 骨架，主 Agent 不手写）。step2 后置 normalize、step4 前 init-summary，**不在各脚本各加容错正则**。
+
+#### N0.0.5-12 · 第二 / 三波减法收敛
+
+按"减法优先、防屎山"砍掉实测信号 ≈ 0 的机制：
+
+- 砍 **5-D integration-verifier 整套**（实测 verdict=pass 但 5 处 import 硬崩，4 类边覆盖不到 NW 内部 props/atom 真 bug）
+- 砍 **step 2.5 state-extractor 独立 sub-agent**（opus 成本 vs 下游效果未观察到）
+- 砍 **nw-verifier 旧 V5「对抗扫描」**（回退纯 judge；现 V5 = 契约对账，二者无关）
+- `dag-validator` 砍重的 `--emit-edges`，收敛为轻量 `--emit-layers`（输出拓扑分层；§B.5 改成主 Agent 必须据分层分波、禁按编号自分，根治父子组件切同波 prop 漂移）
+
+#### N0.0.5-13 · 配套：schemas / references / 大文档 IO
+
+- schemas 扩充：`nw-slice.schema.json`、`component-graph.schema.json`、`forbidden-patterns.schema.json`
+- `references/estimates.md`（各步预估耗时表，排期 + 瓶颈定位）
+- `skills/pageforge/CHANGELOG.md`（new，skill 级 dev 史单一真相）
+- streaming-safety 加「大文档分页拉 + 即写」段（治飞书大文档单次 fetch ~270s socket 崩）
+
+**二期影响文件**（自 onlychat-agg-tuning worktree 回落）：
+
+| 区域 | 文件 |
+|---|---|
+| agents（new） | `nw-verifier.md` |
+| pageforge scripts | `nw-slicer.mjs`（new）、`dead-state-scanner.mjs`（new）、`import-resolver.mjs`（new）、`pageforge-prep.mjs`（new）、`xref-closure.mjs`（new）、`dag-validator.mjs`、`schema-validator.mjs`、`footprint-extractor.mjs`、`README.md` |
+| pageforge schemas | `nw-slice.schema.json`（new）、`component-graph.schema.json`（new）、`forbidden-patterns.schema.json`（new）、`nw-components.schema.json`、`README.md` |
+| pageforge 其它 | `SKILL.md`、`references/nw-components.md`、`references/estimates.md`（new）、`CHANGELOG.md`（new） |
+| 其它 skill | `code-baseliner/SKILL.md`、`figma-analyzer/README.md`、`get-background-img/README.md`、`origin-prd-gen/skill.md`、`prd-analyzer/skill.md`、`prd-analyzer/template.md` |
+| agents（改） | `page-logic-gen.md`、`page-template-gen.md`、`tech-solution-generator.md`、`visual-analyzer.md`、`project-baseliner.md`、`prd-clarifier.md`、`prd-api-fetcher.md`、`_common/streaming-safety.md`、`_refs/page-template-gen/4-1-brownfield.md`、`_refs/tech-solution-generator/tech-fe-schema.md` |
+
+> **保留未删**：`agents/workflow-evaluator.md`（一期加入的能力评估元 Agent）仍在；worktree 当前无此文件、亦无引用，回落时按"不主动删"保留。
+
+---
+
 ## new0.0.4（2026-05-14）
 
 > **触发原因**：研究开源项目 [claude-task-master](https://github.com/eyaltoledano/claude-task-master) 后做"该借鉴啥"决策。对抗式评估（独立 opus sub-agent）把原始 8 条候选筛到 2 条真有 ROI 的 + 1 条设计原则，其余 6 条砍掉（agg 已有更对症方案 / 落点错 / 引入依赖反成本）。

@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "nw-slice",
+  "title": "per-NW-* 切片文件 (NW-xxx.slice.md) 结构契约",
+  "description": "lever ② nw-slicer.mjs 为每个 NW-* 产出的切片文件结构。slicer 从 [TECH_FE]/[MANIFEST]/[CODE_BASELINE]/[TEMPLATE_SUMMARY] 抽出该 NW-* 的精确切片，写到 .claude/docs/_slices/NW-xxx.slice.md。step 4-B/5-B 的生成 sub-agent 与 step 4-B-verify/5-B-verify 的 nw-verifier 共享同一份切片（抽一次、用两次、零漂移）。产物是 markdown 文档，本 schema 描述其必备分节。",
+  "type": "object",
+  "x-file-format": "markdown with YAML frontmatter；本 schema 的 properties 对应 markdown 内的 `## ` 二级小标题分节",
+  "required": ["frontmatter", "A1_techfe_row", "A2_logic", "A3_manifest", "A8_inline_rewrite", "B1_baseline", "B3_mode", "B5_siblings", "B7_allowed_imports", "B8_forbidden_patterns"],
+  "properties": {
+    "frontmatter": {
+      "description": "YAML frontmatter。nw_id (^NW-\\d+$) / step (4 或 5) / source_tech_fe_hash (源 [TECH_FE] 的 content hash，主 Agent 续跑时比对、变了则重抽) / generated_at",
+      "x-required-keys": ["nw_id", "step", "source_tech_fe_hash"]
+    },
+    "A1_techfe_row": {
+      "description": "## A1 §4 表格行 —— 该 NW-* 在 [TECH_FE] §4.1/§4.2/§4.3 的那一行（按 `来源编号` 列精确匹配 NW-NNN）",
+      "x-source": "[TECH_FE] §4.1~§4.3"
+    },
+    "A2_logic": {
+      "description": "## A2 §5 逻辑方案 —— 该 NW-* 的 `### NW-NNN` 整段，含首行 `> PRD 出处：` 锚。lever ③ verify 的 V1（§5 逻辑核对）+ V3（PRD 约束核对）以此节为对照源",
+      "x-source": "[TECH_FE] §5"
+    },
+    "A3_manifest": {
+      "description": "## A3 manifest 节段 —— 该 NW-* 在 [MANIFEST] 的整个 block（status / design_tokens 全字段 / placement / wraps / inline_usage / import_from / e_probe / figma_node / deps）。lever ③ verify 的 V2（design_token 保真）以此节为对照源",
+      "x-source": "[MANIFEST]"
+    },
+    "A4_footprint": {
+      "description": "## A4 §4.0 足迹（brownfield 适用，可选）—— 该 NW-* 宿主 / insert_into 文件命中的 §4.0 文件 block。lever ③ verify 的 V4（足迹继承）以此节为对照源",
+      "x-source": "[TECH_FE] §4.0",
+      "x-optional": true
+    },
+    "A5_footprint_auth": {
+      "description": "## A5 §4.6 授权删除（可选）—— §4.6 表中 `所在文件` 命中 A4 同一文件的行",
+      "x-source": "[TECH_FE] §4.6",
+      "x-optional": true
+    },
+    "A6_nwcomp_row": {
+      "description": "## A6 nw_components 行（仅 step 5）—— 该 NW-* 在 [TEMPLATE_SUMMARY] nw_components 状态表的一行",
+      "x-source": "[TEMPLATE_SUMMARY]",
+      "x-step": 5
+    },
+    "A7_pending": {
+      "description": "## A7 §5 待决项（仅 step 5，可选）—— 归属该 NW-* 文件的 C 类 / upstream-gap / step5-pending 条目",
+      "x-source": "[TEMPLATE_SUMMARY] §5 待决项 + [TECH_FE] §9",
+      "x-step": 5,
+      "x-optional": true
+    },
+    "A8_inline_rewrite": {
+      "description": "## A8 §4.2 最小改造判定 —— 该 NW-* 在 §4.2 顶部「最小改造判定结果」段的那一行（inline-rewrite / 保留）",
+      "x-source": "[TECH_FE] §4.2 判定段"
+    },
+    "B1_baseline": {
+      "description": "## B1 项目底座 —— [CODE_BASELINE] M1/M2/M4/M5/M7/M9 整段照搬（全局公共，每片都带、不细切；切掉会导致 import 路径瞎猜 / atom hook 选错 / i18n key 漂移）",
+      "x-source": "[CODE_BASELINE]"
+    },
+    "B2_step2_mode": {
+      "description": "## B2 step2_mode —— [MANIFEST] frontmatter 的 step2_mode 标量（4-B token-fidelity 严格/宽松分支据此）",
+      "x-source": "[MANIFEST] frontmatter"
+    },
+    "B3_mode": {
+      "description": "## B3 模式 —— [TECH_FE] frontmatter `模式:` + (mixed 时) 该 NW-* 所属 page 的 pages[] 行",
+      "x-source": "[TECH_FE] frontmatter"
+    },
+    "B4_global_store": {
+      "description": "## B4 全局 store 契约（可选）—— [TECH_FE] §5 中被 ≥2 个 NW-* 引用的 atom/store 描述。NW-* 间精确依赖契约改由 B7 import 白名单（读 manifest deps.consumes）承载；B4 只补全局共享 store 的语义说明。（旧 B6 组件图边节 + edges.json 体系 2026-05-21 已砍。）",
+      "x-source": "[TECH_FE] §5 全局段",
+      "x-optional": true
+    },
+    "B5_siblings": {
+      "description": "## B5 sibling 目录 —— [TECH_FE] §4 全表每行的 `来源编号 + 文件路径` 两列（仅 id + 名 + import_path；**禁带** sibling 的 §5 方案全文）。若 A2 §5 明示该 NW-* 依赖某 sibling，slicer 额外塞该 sibling 的 A1+A3 摘要（一跳展开、不递归）。P0-1b 起每行追加该 sibling 的 manifest status + 生成指令：`内联复用`/`内联重写` → 无独立文件、禁 import、须内联；`不存在，需新建` / `已有*` / `复用现有` → 可 import。",
+      "x-source": "[TECH_FE] §4 + [MANIFEST] status"
+    },
+    "B7_allowed_imports": {
+      "description": "## B7 import 白名单 —— 写 import 时必须命中本表（事前注入约束，与 5-C 第二关 import-resolver 形成「事前预防 + 事后兜底」双层防御）。三来源合并：① 本 NW-* 的 deps.consumes 依赖（nw-slicer 直接解析 manifest deps 块，按 manifest plan_path 解析 import 路径）② [CODE_BASELINE] M2-M9 既有组件 / hook / atom / 路由 ③ NPM 包（bare specifier，不限制）。任何不在以上三类的 import → 改为 `// TODO step5-pending: 需新增子组件 X，本轮 [MANIFEST] 未登记` 占位（不写 import 语句）。",
+      "x-source": "manifest deps.consumes + [CODE_BASELINE] M2-M9 + tsconfig paths",
+      "x-required": true
+    },
+    "B8_forbidden_patterns": {
+      "description": "## B8 禁忌生码 pattern —— dispatch 前注入禁忌清单，sub-agent 写代码时必须避免（事前约束，与 5-C 第四关 dead-state-scanner 形成「事前预防 + 事后扫描」双层防御）。9 类 lexical pattern 含 callback-undefined / callback-empty-fn / callback-console-stub / state-setter-never-called / memo-empty-array / state-write-only / const-empty-array-consumed / const-empty-string-gating / handler-noop，每条带 why_bad + correct_alternative。本节内容由 slicer 从 schemas/forbidden-patterns.schema.json 的 x-canonical.patterns 渲染（schema = single source of truth，slicer + dead-state-scanner 共享）。",
+      "x-source": "schemas/forbidden-patterns.schema.json#x-canonical",
+      "x-required": true
+    },
+    "B9_contract": {
+      "description": "## B9 跨 NW-* 契约形状（可选）—— [TECH_FE] §5.5 契约对账表里与本 NW-* 相关的行，按三视角注入：① ⚠️ 写回义务（本组件必须 setAtom 写回的字段，漏写=数据静默丢失）② 你消费的契约形状（hook 返回键 / atom 字段 / enum 值的权威清单，防臆造幽灵字段 + enum 错位）③ 你作为 owner 导出的契约。事前注入给生成 sub-agent，nw-verifier V5 据此逐字段对账。专治 tsc 抓不到的 #3 enum 错位 / #4 字段不写回 atom。§5.5 表为空 / 本 NW-* 不涉及跨 NW-* 契约 → 本节为「（无）」。",
+      "x-source": "[TECH_FE] §5.5 跨 NW-* 契约对账表（nw-slicer 按 owner 列 + 本 NW-* deps.consumes 名集合解析）",
+      "x-optional": true
+    }
+  },
+  "x-consumers": {
+    "generate": "step 4-B page-template-gen / 5-B page-logic-gen 的生成 sub-agent —— 只 Read 本切片，禁读整份 [TECH_FE]/[MANIFEST]",
+    "verify": "step 4-B-verify / 5-B-verify 的 nw-verifier —— 拿本切片 + 成品 .tsx 做语义核对"
+  },
+  "x-completeness-check": "nw-slicer.mjs 产出后自检：required 分节任一缺失或空 → exit 2 报 `slice-incomplete: NW-xxx <缺的节>`，主 Agent fail-fast 不 dispatch（把「§5 漏写某 NW-* 方案」前移到 dispatch 前暴露）",
+  "x-staleness": "frontmatter.source_tech_fe_hash 与当前 [TECH_FE] hash 不一致 → 主 Agent 续跑时强制重抽全部切片"
+}

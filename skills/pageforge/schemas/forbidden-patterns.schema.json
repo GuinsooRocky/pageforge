@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "forbidden-patterns",
+  "title": "生码禁忌 pattern 表（双消费方共享）",
+  "description": "9 类 lexical 死状态 pattern 的权威清单。两个消费方共享同一份真相：① dead-state-scanner.mjs（5-C 第四关后置扫描）② nw-slicer B8 节（dispatch 前注入到 sub-agent prompt 作为禁忌清单）。前置约束 + 后置兜底双层防御。zero-dep node 脚本 + agent prompt 都按本 schema 的 patterns[] 数组渲染。",
+  "type": "object",
+  "required": ["patterns"],
+  "properties": {
+    "patterns": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/pattern" }
+    }
+  },
+  "definitions": {
+    "pattern": {
+      "type": "object",
+      "required": ["id", "label", "regex_human", "why_bad", "correct_alternative"],
+      "properties": {
+        "id": { "type": "string", "description": "pattern id（dead-state-scanner 用作 hits[].pattern 字段；slicer B8 列里也按此 id 引用）" },
+        "label": { "type": "string", "description": "短标签，slicer B8 表格用" },
+        "regex_human": { "type": "string", "description": "人类可读的正则描述（非机器可执行；机器版本写死在 dead-state-scanner.mjs 里）" },
+        "why_bad": { "type": "string", "description": "为什么是死状态（给 sub-agent 看的『为什么不该这么写』）" },
+        "correct_alternative": { "type": "string", "description": "正确实现样板/替代写法（给 sub-agent 看的『该怎么写』）" }
+      }
+    }
+  },
+  "x-canonical": {
+    "patterns": [
+      {
+        "id": "callback-undefined",
+        "label": "回调显式 undefined",
+        "regex_human": "onXxx={undefined}",
+        "why_bad": "JSX prop 显式传 undefined = 调用处永远不会触发，相当于死回调",
+        "correct_alternative": "回调暂未实现 → 写 onXxx={() => { /* TODO step5-pending: 动作描述 */ }} 并把该 TODO 登记到工作清单；不允许直接传 undefined"
+      },
+      {
+        "id": "callback-empty-fn",
+        "label": "回调空函数",
+        "regex_human": "onXxx={() => {}}",
+        "why_bad": "空函数 handler = 调用触发但什么也不做，最常被误以为已实现",
+        "correct_alternative": "同上：写带 TODO step5-pending 的具名函数，明确『为何此处暂时不做』；或如果真的不需要回调，把 prop 标 optional 并由父组件 conditional 渲染"
+      },
+      {
+        "id": "callback-console-stub",
+        "label": "回调 console 占位",
+        "regex_human": "onXxx={() => console.log(...)}",
+        "why_bad": "console.log/warn/info 是开发期占位，不能进发布产物；功能上等于死回调",
+        "correct_alternative": "同上：换成带 TODO step5-pending 的具名函数；不要用 console 当占位"
+      },
+      {
+        "id": "state-setter-never-called",
+        "label": "useState setter 永不调用",
+        "regex_human": "const [X, setX] = useState(...) 但 setX 在文件其他位置 0 次调用",
+        "why_bad": "声明了 setter 但从不调用 = state 永远卡在初值（典型：isLoading=true 但永不置 false 导致 UI 永远卡 Loading）",
+        "correct_alternative": "要么删除该 state（如果真不需要），要么在合适的事件/effect 内 setX(...) 让状态能流转。如果只是『等接口接入后才会调用』→ 加 // TODO upstream-gap: 待 hook/mutation 接入后调用 setX 注释"
+      },
+      {
+        "id": "memo-empty-array",
+        "label": "useMemo 硬编码空数组",
+        "regex_human": "useMemo(() => [], [...])",
+        "why_bad": "memo 工厂返回 []，永远是空数组——如果它被当数据源 .map/.length 消费 = 列表恒空",
+        "correct_alternative": "如果数据来自接口/store → 写 useMemo(() => data ?? [], [data]) 形式，依赖真实数据源；如果占位待补 → 加 // TODO upstream-gap: 数据源 X 待接入 注释"
+      },
+      {
+        "id": "state-write-only",
+        "label": "state 名空槽（write-only）",
+        "regex_human": "const [, setX] = useState(...)",
+        "why_bad": "state 值槽用 _ 解构丢弃 = snapshot 只写不读，永远没人消费写入的值（典型：单槽快照 setSnapshot 写完没人读）",
+        "correct_alternative": "如果 state 值确实没用 → 改用 useRef 或直接删；如果应该被消费但当前 caller 没接 → 把 state 名补回来并在 render/useEffect 里实际用它"
+      },
+      {
+        "id": "const-empty-array-consumed",
+        "label": "const 空数组被消费",
+        "regex_human": "const X = [] 后被 X.map/.length 消费，且文件内从未 X.push/.splice 等 in-place mutate",
+        "why_bad": "const 数组永远空 + 被当数据源 = 列表恒空",
+        "correct_alternative": "要么从接口/store 拿数据（hook/atom），要么显式标 // TODO upstream-gap: X 数据源未接入；不允许 const 空数组 + 直接 .map"
+      },
+      {
+        "id": "const-empty-string-gating",
+        "label": "const 空串走死分支",
+        "regex_human": "const X = '' 后被 if (X) 走分支",
+        "why_bad": "const 空串永远 falsy，gate 的分支永远不执行（典型：URL/key 占位空串但 if (X) window.open(X) 永远不开）",
+        "correct_alternative": "如果该 URL/key 是配置项 → 从 [CODE_BASELINE] M9 或 env 拿；如果待接入 → 标 // TODO upstream-gap: X 配置项待补，不要用空串占位接进 if"
+      },
+      {
+        "id": "handler-noop",
+        "label": "具名处理器空体",
+        "regex_human": "const handleX = () => {}  /  function handleX() {}  /  const handleX = useCallback(() => {}, [...])（具名 handle*/on* 处理器声明为空体，区别于 P2 的 JSX 内联空回调）",
+        "why_bad": "处理器具名声明、被 onClick={handleX} 接好线，但函数体**裸空且无任何标记** = 用户点了什么都不发生，又看不出是『故意延期』还是『忘了写』。最隐蔽的『接通假象』：组件结构完整、事件已绑定、tsc 通过，但业务动线断在这里（v2 真 bug：handleSubmit 接好线却 no-op）。注：dead-state P9 在 raw 源判定，**带 TODO 注释体的延期 handler 自动豁免**（已被 5-C 第一关 TODO 对账计入），只命中裸空体——故这里禁的是『裸空体无标记』，不是『延期』本身（主题 B：待决/欠债标记两类语义）",
+        "correct_alternative": "在函数体内写真实动作（调 mutation / setState / 路由跳转 / 关闭弹窗）；若依赖上游未接入 → 写 `() => { /* TODO upstream-gap: 待 X 接入后在此 setX/mutate */ }`（**带 TODO 注释体 = 诚实欠债 + P9 豁免**）；绝不留**裸** `() => {}` 蒙混过『已实现』"
+      }
+    ]
+  },
+  "x-consumers": {
+    "scanner": ".claude/skills/pageforge/scripts/dead-state-scanner.mjs —— 5-C 第四关后置扫描，每个 pattern 对应一段 regex 实现",
+    "slicer": ".claude/skills/pageforge/scripts/nw-slicer.mjs —— B8 节渲染，作为 dispatch 前注入 sub-agent 的禁忌清单（事前预防）"
+  }
+}

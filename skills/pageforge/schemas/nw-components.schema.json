@@ -29,10 +29,15 @@
     },
     "failure_reason": {
       "type": ["string", "null"],
-      "description": "status=skeleton-failed 时必填，简述失败原因（一行）；ok 时填 `-` 或留空"
+      "description": "status=skeleton-failed 时填失败原因；verify_status=verify-failed-giveup 时填失败的 V 项（如 `V1/V3`）；其余填 `-` 或留空"
+    },
+    "verify_status": {
+      "type": "string",
+      "enum": ["verified", "verify-failed-giveup", "skipped", "-"],
+      "description": "lever ③ generate-then-verify 回路结果（step 4-B-verify / 5-B-verify 写入）。verified=语义校验通过；verify-failed-giveup=重试 2 次仍不过、已登记人工复核；skipped=status=skeleton-failed 的 NW-* 不进 verify；`-`=向后兼容（旧 manifest / 未启用 verify 回路）。非 required，缺省视为 `-`"
     }
   },
-  "x-table-format": "markdown table with 5 columns: | nw_id | path | status | is_client | failure_reason |",
+  "x-table-format": "markdown table with 6 columns: | nw_id | path | status | is_client | failure_reason | verify_status |",
   "x-dispatch": {
     "ok": "step 4-C 替换 placeholder 为 <Component />；step 5-B 填业务逻辑",
     "skeleton-failed": "step 4-C 保留 placeholder div；step 5-B 整组跳过；[LOGIC_SUMMARY] 末尾登记复跑入口"

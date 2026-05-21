@@ -80,10 +80,39 @@ baseline_version: {来自 CODE_BASELINE frontmatter}
 > 空表保留表头，写一行 `（无授权删除项）`。
 
 ## §5 逻辑方案
-{按 NW-* 编号逐条，描述：触发时机 / 数据流 / 状态管理 / 依赖 hook / 边界条件}
-{只写 WHY & 约束，不写代码示例}
+
+每条 NW-* 用三级标题起头，格式固定（nw-slicer.mjs 按此锚点切片，见文末「§4/§5 NW-* 锚点契约」）：
+
+### NW-NNN {组件名}
+> PRD 出处：§X.X（多处用逗号分隔；无对应 PRD 段的纯工程项写 `engineering-only`）
+
+{触发时机 / 数据流 / 状态管理 / 依赖 hook / 边界条件；只写 WHY & 约束，不写代码示例}
 
 > **brownfield 强制**：每条 NW-\* / 改动条目必须显式说明它如何继承 §4.0 现有足迹（组件库组件用哪个、保留哪些埋点、复用哪些 i18n key、保留哪些过滤逻辑、响应式策略沿用哪种、暗色模式 class 怎么覆盖）。如不继承某条足迹，必须在 §4.6 已登记授权。
+
+## §5.5 跨 NW-* 契约对账表
+
+> **目的**：把 NW-* 之间共享的 atom / 类型 / hook / enum 的**精确形状**与**写回义务**集中声明一处。nw-slicer.mjs 按本表把与每个 NW-* 相关的行注入其切片 B9 节，生成 sub-agent 据此精确消费、不臆造字段 / 不写错 enum 值；nw-verifier V5 据 B9 逐字段对账。**专治 tsc 抓不到的两类语义断裂**：① enum 值用错（语法合法、语义错位）② 表单字段只写 local state 没写回共享 atom（数据静默丢失）。
+>
+> 只登记**跨 NW-* 边界**的契约（被 ≥2 个 NW-* 涉及，或有明确写回义务的共享 atom）；组件私有 state 不进表。本次迭代无跨 NW-* 共享契约 → 写「本次迭代无跨 NW-* 共享契约」一行即可。
+
+**表格格式固定**（nw-slicer.mjs 按列解析，列序不可变）：
+
+| 契约符号 | kind | owner | 形状 | 写回义务 |
+|---|---|---|---|---|
+| worldCardDraftAtom | atom | NW-016 | name, description, coverUrl, entries | NW-003:name; NW-005:description,coverUrl; NW-007:entries |
+| useWorldCardPublish | hook | NW-020 | publish(draft):Promise<void>, isPublishing:boolean | — |
+| WorldCardStatus | enum | NW-016 | 成员: Draft / Published / Archived（proto: `@/generated/.../world_card_pb`；数值以 proto 为准） | — |
+| isDirtyAtom | atom | NW-016 | (boolean) | NW-007:置脏(字段改动时) |
+
+- **契约符号**：atom/hook/类型/enum 的名字（与 deps.provides 里登记的一致）。
+- **kind**：`atom` / `type` / `hook` / `enum` / `callback` 之一。
+- **owner**：定义该契约的 NW-*（精确 `NW-NNN`），必须是 §5.5 解析的依据。
+- **形状**：逗号分隔的字段 / 返回键 / 成员名。atom/type 写字段名；hook 写返回键（可带类型）。
+  - **enum 形状（硬规则 —— 防 #3 enum 错位）**：只写 **proto 源路径 + 成员名**（如 `成员: PRIVATE/PUBLIC/UNLISTED（proto: @/generated/.../world_card_pb）`），**严禁手写数值**。手写数值必抄错——实测 step 3 把 `Visibility`/`NoteType`/`gender` 三个 enum 数值全抄错（写 `PRIVATE=1` 实为 `=2`）。数值是 proto 的唯一真相，消费方一律 `import` proto enum 成员、不照抄本表数值；本表只给成员名让消费方对齐**语义**（哪个成员对应哪个业务态），不给数值。
+  - **非字段型 atom**（boolean / 计数器 / 单值）：形状写 `(boolean)` / `(number)` 等类型标注，不强行拆字段。
+- **写回义务**：哪些 NW-* 作为写入方、各自必须写回哪些字段，格式 `NW-003:name; NW-005:description,coverUrl`（每个写入方一段，`;` 分隔，字段 `,` 分隔）。无写回方写 `—`。
+  - **非字段型 atom 的写回义务**写**动作语义**而非字段名（如 `NW-007:置脏(改动时)`、`NW-005:初始化设值`），nw-slicer 渲染 B9 时会把它当动作描述、不套「字段」措辞。
 
 ## §6 i18n
 i18n 改动策略遵循 [CODE_BASELINE] M9（如有 add-only / mutable 约束）；M9 未声明则参考 [CLARIFY_FE] §14 项目级偏好（缺省按"先复用后新增"）。
@@ -132,3 +161,16 @@ i18n 改动策略遵循 [CODE_BASELINE] M9（如有 add-only / mutable 约束）
 > - C：mobile 视口 / 键盘交互 / 浏览器兼容 → 需 dev server 实测，留 Phase 2 标记
 >
 > D（存在性检查）和 E（复用必要性）不是 PRD 层面的问题，不列入 §9。Phase 2 步骤 4/5 对所有 §4.2 条目系统性执行。
+
+---
+
+## §4/§5 NW-* 锚点契约（nw-slicer.mjs 硬依赖）
+
+`nw-slicer.mjs`（lever ② 切片脚本）按以下锚点从本文档切出 per-NW-* 切片。tech-solution-generator 写 [TECH_FE] 时**必须**严格遵守——否则 slicer 会**切错字段**（把 NW-013 的逻辑切进 NW-012 的切片，切错能骗过 schema 校验，比漏字段更隐蔽）：
+
+1. **§5 每条 NW-\***：必须以 `### NW-NNN {组件名}` 三级标题起头（`NW-` + 纯数字，与 `^NW-\d+$` 一致）；该标题与下一个 `### ` 之间的全部内容即该 NW-* 的 §5 切片。
+2. **§5 每条 NW-\* 标题下第一行**：必须是 `> PRD 出处：...`（lever ③ verify 的 V3「PRD 约束」核对此锚；纯工程项写 `> PRD 出处：engineering-only`）。
+3. **§4.1~§4.6 表格**：NW-* 行的 `来源编号` 列必须是精确 `NW-NNN` 字面量（不写 `NW-7`、不写区间 `NW-1~3`、不写多编号合并单元格）；slicer 按此列精确匹配抽行。
+4. **§4.0 足迹**：每个被改文件 block 必须以 `文件：<绝对路径>` 行起头；slicer 按文件路径把足迹 block join 给「宿主 / insert_into == 该文件」的 NW-*。
+5. **§5.5 契约对账表**：必须是独立的 `## §5.5 跨 NW-* 契约对账表` 二级标题（在 §5 与 §6 之间）；slicer 的 §5 切片边界先于 §5.5 截断，故 §5.5 **不可**写成 §5 的子段。表格列序固定 `契约符号 | kind | owner | 形状 | 写回义务`，owner 列必须是精确 `NW-NNN`（slicer 按此判定行有效性）。
+6. 锚点格式若需变更，必须同步改 `scripts/nw-slicer.mjs` 解析逻辑与 `schemas/nw-slice.schema.json`。

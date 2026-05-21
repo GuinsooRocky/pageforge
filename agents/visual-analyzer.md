@@ -1,6 +1,6 @@
 ---
 name: visual-analyzer
-description: 负责视觉分析的子Agent。自动分支：2.A greenfield（调用 figma-analyzer 全量 IoU 流程）/ 2.B brownfield（轻量两阶段 Figma 拉取 + 聚合输出 component-manifest.md）。mixed 场景在本 step 不拆分——一次性输出全量 manifest，per-page 分发由 step 4/6 消费。在 pageforge step 2 被调用。
+description: 负责视觉分析的子Agent。按调度方传入的 step2_mode 三档分支：2.A 全量（figma-analyzer IoU 流程）/ 2.B 轻量（两阶段 Figma 拉取 + 聚合 component-manifest.md）/ 2.C 中量（mapped+frame_only 全拉 design_context、inline 真 tokens）。mixed 场景在本 step 不拆分——一次性输出全量 manifest，per-page 分发由 step 4 消费。在 pageforge step 2 被调用。
 model: sonnet
 background: false
 skills:
@@ -63,16 +63,56 @@ skills:
 
 ---
 
+## 模式三档判定表（主 Agent 调度前用）
+
+> **职责边界（重要）**：sub-agent 运行在隔离上下文、**不能 AskUserQuestion**。下方「auto 默认判定表」与「AskUserQuestion 模板」由**主 Agent** 在调度本 agent **之前**执行——主 Agent Read 本节、按判定表算出建议默认值、自己执行 AskUserQuestion 让用户选定 `step2_mode`，再带 `step2_mode` 参数调度本 agent。本 agent 只消费已定的 `step2_mode`，不自己问用户。
+
+### auto 默认判定表
+
+主 Agent 按下表给出建议默认值（用户可在 AskUserQuestion 中 override）：
+
+| 自动判定输入 | 建议默认 |
+|---|---|
+| [CODE_BASELINE] `framework == greenfield-empty` 或 `baseline_version == 0` | **2.A 深度** |
+| brownfield 且 [CLARIFY_FE] §12 新建 NW-\* 占比 < 50% | **2.B 轻量** |
+| brownfield 且 [CLARIFY_FE] §12 新建 NW-\* 占比 ≥ 50% OR NW-\* 总数 ≥ 30 OR §10 O-\* ≥ 15 | **2.C 中量** |
+
+### AskUserQuestion 模板（主 Agent 执行）
+
+```
+step 2 模式选择（你可 override 默认）：
+
+  NW-* 总数 / 新建占比：<X> / <Y%>
+  §10 O-* 数（视觉差异项）：<Z>
+  建议默认：<auto 结果>
+
+  ⭕ 2.B 轻量（~7min）：metadata only，design_tokens 不 inline，下游 step 4 凭 PRD 描述 + 通用 token 写组件 — 仅适合小修小补 / 视觉精度要求不高
+  ⭕ 2.C 中量（~14min，推荐用于大 brownfield PRD）：对所有 mapped + frame_only 节点拉 design_context，inline 真 tokens 进 [MANIFEST]，下游 step 4 必须读 tokens 写 className
+  ⭕ 2.A 深度（~35min）：全量 IoU + screenshot + figma-analyzer skill per_component 精读 — 适合 pixel-perfect 验收 / 全新页面
+```
+
+用户选定后，主 Agent 把 `step2_mode` 作为本 agent 调度参数透传。
+
 ## 分支判断
 
-[TECH_FE] 在 step 3 才生成，本 step 不可读。判定输入：[CODE_BASELINE] frontmatter 的 `baseline_version` + `framework`。
+**首选输入：调度方传入的 `step2_mode` 参数**（取值 `2.A` / `2.B` / `2.C`，由主 Agent 按上方判定表 + AskUserQuestion 选定）。
 
-| 条件 | 执行路径（tentative，最终 mode 由 step 3 钉死） |
+| step2_mode | 执行路径 |
+|---|---|
+| `2.A` | **2.A 全量路径**（IoU + figma-analyzer skill + per_component 精读） |
+| `2.B` | **2.B 轻量路径**（metadata only，仅 mapped 节点拉 design_context） |
+| `2.C` | **2.C 中量路径**（metadata + mapped + frame_only 全部拉 design_context，inline 真 tokens 进 [MANIFEST]） |
+
+**fallback（未传 `step2_mode` 时）**：按 [CODE_BASELINE] frontmatter `baseline_version` + `framework` 自动判：
+
+| 条件 | fallback 路径 |
 |---|---|
 | `baseline_version >= 1` 且 `framework != greenfield-empty` | **2.B 轻量路径** |
 | `baseline_version` 不存在 / `= 0` / `framework == greenfield-empty` | **2.A 全量路径** |
 
-> **Mode single source of truth**：visual-analyzer 在 step 2 的判定仅作为 **tentative**——只决定本 step 的 2.A / 2.B 执行路径，**不写入 [TECH_FE]**。最终的 `mode: brownfield/greenfield/mixed` 由 step 3 tech-solution-generator 基于路径存在性判定后写入 [TECH_FE] frontmatter，下游 step 4/5 一律读 [TECH_FE] `模式:` 单源。
+> 注意：fallback 永不自动选 2.C — 2.C 必须由 SKILL.md 调度时用户明确选择（防止默认走中量增加耗时成本）。
+
+> **Mode single source of truth**：visual-analyzer 在 step 2 的判定仅作为 **tentative**——只决定本 step 的 2.A / 2.B / 2.C 执行路径，**不写入 [TECH_FE]**。最终的 `mode: brownfield/greenfield/mixed` 由 step 3 tech-solution-generator 基于路径存在性判定后写入 [TECH_FE] frontmatter，下游 step 4/5 一律读 [TECH_FE] `模式:` 单源。`step2_mode` 字段写入 [MANIFEST] frontmatter（独立于 [TECH_FE] 的 mode），step 4 sub-agent 读 [MANIFEST] frontmatter `step2_mode` 判定是否强制读 inline tokens。
 
 > mixed 场景（既有 brownfield 又有 greenfield 页面）在本 step **不拆分**：[CLARIFY_FE] §12 已含全部 NW-\*/RU-\*，按 baseline 主路径一次性产出全量 [MANIFEST]；step 4 page-template-gen 在消费端按 [TECH_FE] §4 表格 `page_id` 字段做 per-page 分发，4-B / 5-B 按 page_id 分组 NW-* loop。
 
@@ -107,6 +147,88 @@ skills:
 
 ---
 
+## 2.C 中量路径（brownfield 高密度）
+
+### 目标
+
+比 2.B 多一步：对所有 `mapped + frame_only` 节点都拉 `get_design_context`，把 design_tokens（spacing / color / font-size / font-weight / border-radius / shadow / size（width / height）/ variables_resolved）**inline 进 [MANIFEST]**，让 step 4 4-B sub-agent 不需要再调 Figma 也能拿真值写 className。
+
+适合：brownfield + NW-* 总数 ≥ 30 + 新建占比 ≥ 50%（如 onlychat 世界卡 2.0 创建侧 MVP 52 NW-* / 96% 新建）。
+
+### 与 2.B 的差异（仅这 3 处）
+
+1. **阶段 1 节点树拉取范围扩大**：除了 root node，对所有 §12 中的 NW-* 候选 frame 都做 `get_metadata`，确保 frame_only 节点的子节点也能被识别（用于后续按 page-state frame 拉子节点 design_context）
+
+2. **阶段 3 design_context 拉取从"仅 mapped"扩到"mapped + frame_only"**：
+   - 现行 2.B：仅对 `mapped` 节点调 `get_design_context`，`frame_only` 节点只记 frame ID 让 step 4 自己推
+   - **2.C 改为**：对 `mapped + frame_only` 节点都调 `get_design_context`，拿回 design_tokens 后落进 [MANIFEST] 该 NW-* 节段（`figma_node_missing` 仍保留跳过，避免无效 API 调用）
+
+3. **阶段 4 [MANIFEST] 必须 inline design_tokens 真值**：
+   - 现行 2.B 写法：`figma_node: <node_id>`（节点 ID 引用）+ 简略 design_tokens
+   - **2.C 改为**：每个 NW-* 节段必须写完整 design_tokens 表（spacing / color / font-size / font-weight / border-radius / shadow / opacity / blur / size（width / height）/ variables_resolved 中的 hex/rgba 实际值），下游 step 4 sub-agent 读此字段直接转 Tailwind className
+
+### 输出 [MANIFEST] 增量 schema（2.C 特有字段）
+
+每个 mapped / frame_only NW-* 节段：
+
+```yaml
+### design_tokens（2.C 必填；2.B 仅 mapped 必填、frame_only 可省略）
+- spacing:
+    padding_x: 16px
+    padding_y: 12px
+    gap: 8px
+- color:
+    background: rgb(255, 255, 255)        # 来自 variables_resolved
+    background_dark: rgb(20, 20, 20)
+    text_primary: rgb(32, 32, 32)
+    text_secondary: rgba(32, 32, 32, 0.6)
+- font:
+    family: "Exo 2"
+    size: 14px
+    weight: 700                            # 不是 "bold" / "normal"，是 Figma 真值
+    line_height: 20px
+    letter_spacing: -0.014em
+- border_radius:
+    all: 12px                              # 或 top_left / top_right / bottom_left / bottom_right
+- shadow:
+    - "0 2px 8px rgba(0,0,0,0.08)"        # 多层 shadow 用数组
+- opacity: 1
+- blur: 0                                  # backdrop-blur 用专字段
+- size:
+    width: 480px                           # 来自 absoluteBoundingBox.width；固定尺寸组件必填（弹窗/卡片/固定栏宽）
+    height: 320px                          # 来自 absoluteBoundingBox.height；纯流式布局组件可省
+```
+
+### 命中率与降级
+
+```
+2.C 命中率 = (mapped + frame_only) / NW-* 总数
+命中率 < 0.7 → 自动降级为 2.A 全量（同 2.B 降级规则）
+命中率 ≥ 0.7 → 按 2.C 跑完
+```
+
+---
+
+## [MANIFEST] frontmatter step2_mode 字段（强制）
+
+无论 2.A / 2.B / 2.C 路径，都必须在 [MANIFEST] frontmatter 写入 `step2_mode` 字段：
+
+```yaml
+---
+模式：brownfield 2.C        # 或 brownfield 2.B / greenfield 2.A
+step2_mode: 2.C              # 独立字段，step 4 sub-agent 读此判定行为
+NW 总数：52
+RU 总数：25
+Figma 命中率：38/44
+---
+```
+
+step 4 page-template-gen 读 `step2_mode`：
+- `2.A` / `2.C` → 必须按 [MANIFEST] 的 inline design_tokens 写 className（硬约束，详见 page-template-gen.md 4-B token-fidelity）
+- `2.B` → 仅 mapped 节点有 inline tokens 可读；frame_only / figma_node_missing 按 [TECH_FE] §5 描述兜底
+
+---
+
 ## 2.B 轻量路径（brownfield）
 
 ### 目标
@@ -137,7 +259,7 @@ skills:
 
 **目标**：拿到所有节点的 {id, name, type}，不拉 design tokens。
 
-调用（优先 `mcp__figma__`，仅当不可用时 fallback `mcp__figma-desktop__`，遵循项目 `.claude/rules/figma-mcp.md`）：
+调用（优先 `mcp__figma__`，仅当不可用时 fallback `mcp__figma-desktop__`，遵循 [CODE_BASELINE] M9 索引到的 figma 相关项目规则，若有）：
 ```
 mcp__figma__.get_metadata(nodeId="<URL 里的 node-id>")
 # 不可用则 fallback：mcp__figma-desktop__get_metadata(...)
@@ -171,6 +293,17 @@ LLM 在做映射时按以下原则判断：
 4. **包装关系**：[CLARIFY_FE] §12 标注的 `wraps` 字段已说明 NW-* 包装哪个现有组件，对应 Figma 节点应是该现有组件的 INSTANCE
 5. **找不到精确节点是合法的**：NW-* 是抽象代码组件，Figma 不一定有 1:1 对应节点（比如 InterestTagSection 是整个 Interest tag 区域容器，Figma 里可能就是各 page-state frame 自身）；找不到精确节点时标 `figma_node_missing`，由 step 4 自己拉 page-state frame 的 design context
 
+#### 阶段 2.5：通用能力型节点 → 主动复用扫描（强制）
+
+映射完成后、产出 manifest 前，对**每个 NW-***（不论 §12 是否标了 `wraps`）做一次"是不是现成组件"的主动扫描：
+
+1. **判断节点是不是"通用能力型"**：该 NW-* 对应的 Figma 节点 / desc 语义属于通用 UI 能力 —— 编辑器（富文本 / markdown / 代码）/ 输入框 / 弹窗 / 抽屉 / 工具栏 / 图标 / chip / tooltip / tab / 表单字段 / 上传控件 等。是 → 进第 2 步；纯业务定制节点 → 跳过。
+2. **主动 grep 全项目找现成实现**：按能力语义（不是按 NW-* 名）grep `[CODE_BASELINE]` M4 组件库目录 + 整个 source_root —— 例如 markdown 编辑能力 grep `MarkdownEditor` / `Editor` / `lexical`，弹窗 grep `Modal` / `Dialog`。**不要只看节点名**：Figma 节点名常含糊（如 `Fill/mark down`），要按"它提供什么能力"去搜。
+3. **找到现成实现** → 该 NW-* 在 manifest 里**回填 `wraps: <现有组件路径>`**（manifest 既有字段，无需新增 schema），后续 step 3 E 类探测据此判内联复用 / 包装复用，**不当 net-new 重造**。找到多个候选时在该 NW-* 节段备注列出，`wraps` 填最贴合的一个。
+4. **确认全项目无现成** → 才保持 net-new，manifest `wraps` 留空。
+
+> 根因：pageforge 默认把"Figma 节点 → 一块新代码"当 1:1 净新建，没有"先查现成能不能复用"的主动前置。结果会把已 ship、多处在用的通用组件（如 markdown 编辑器）当全新组件重造，绕一大圈查 PRD / 查接口才发现是现成的。`coui-prefer` 这类 rule 是**被动**的（写代码时才想起），visual-analyzer 必须做**主动**扫描把它前置。
+
 #### 输出形态
 
 每个 NW-* 给一个三选一结论：
@@ -180,6 +313,8 @@ LLM 在做映射时按以下原则判断：
 | `mapped` | 找到精确对应的 Figma 节点 | 阶段 3 调 `get_design_context` 拉该节点 design_tokens |
 | `frame_only` | 只找到所属 page-state frame，没有精确子节点 | 阶段 3 拉 page-state frame 的 design_context，让 step 4 LLM 自己在内部推断 |
 | `figma_node_missing` | 完全找不到对应节点 | 跳过阶段 3，step 4 用 [TECH_FE] §5 描述 + Figma 整体设计风格推断 |
+
+> 以上三选一是"Figma 节点匹配度"结论，与阶段 2.5 回填的 `wraps` 是**正交两件事** —— 一个 NW-* 可以同时是 `mapped`（找到了 Figma 节点）且 `wraps` 非空（也找到了现成组件可复用）。
 
 #### 命中率与降级
 
@@ -207,9 +342,10 @@ mcp__figma__.get_design_context(
 ```
 
 从返回值提取并只保留：
-- `design_tokens`：spacing / color / font-size / border-radius / shadow
+- `design_tokens`：spacing / color / font-size / border-radius / shadow / size（width / height）
 - `variables_resolved`：变量解析后的 hex/rgba 实际值
 - `tail` / `placement`：Tooltip 专有，有则记录，无则跳过
+- 尺寸来源：`absoluteBoundingBox.width` / `absoluteBoundingBox.height`（固定尺寸组件如弹窗 / 卡片 / 固定栏必填；纯流式布局组件可省）
 
 **不保留**：reference code / dependencies / 完整节点树（这些很大但 step 4 用不到）
 
@@ -243,6 +379,9 @@ Figma 命中率：N/M
 - text_font: {值}
 - text_color: {值}
 - shadow: {值}（如有）
+- size:
+    width: {px}（固定尺寸组件必填；来自 absoluteBoundingBox.width）
+    height: {px}（固定尺寸组件必填；来自 absoluteBoundingBox.height；纯流式布局可省）
 
 ### state_variants（视觉变体集 — 强制穷举）
 
@@ -305,6 +444,8 @@ state_variants:
 ---
 
 ## 完成输出
+
+Postcondition 自检（下方 §Postcondition 自检章节）通过后，**必须立即在同一 turn 内**输出以下固定格式作为 final assistant message，然后**主动触发 end_turn**——禁止 schema validator 跑完后停下沉默等"什么时候算完"（详见 `agents/_common/streaming-safety.md` §完成信号）：
 
 ```
 ✅ step 2 visual-analyzer 完成

@@ -11,13 +11,13 @@
 // Step → file → validation rules:
 //   step 2 (visual-analyzer):
 //     --manifest required
-//     - Every `- **status**: <value>` row must be in the 8-enum set
+//     - Every `- **status**: <value>` row must be in the 9-enum set
 //     - `path` (component file path) — soft check only at step 2
 //
 //   step 3 (tech-solution-generator):
 //     --manifest required
 //     --tech-fe required
-//     - All status values in 8-enum set
+//     - All status values in 9-enum set
 //     - Invariant: count of "待 step 3 确认" must be 0
 //     - tech-fe.md frontmatter 模式 in {brownfield, greenfield, mixed}
 //     - If 模式: mixed, pages: array must be non-empty
@@ -74,6 +74,7 @@ const NW_COMPONENTS_SCHEMA = JSON.parse(
   fs.readFileSync(path.join(SCHEMAS_DIR, 'nw-components.schema.json'), 'utf8'),
 );
 const NW_STATUS_ENUM = new Set(NW_COMPONENTS_SCHEMA.properties.status.enum);
+const VERIFY_STATUS_ENUM = new Set(NW_COMPONENTS_SCHEMA.properties.verify_status.enum);
 
 function parseArgs(argv) {
   const args = {};
@@ -244,16 +245,17 @@ function validateTemplateSummary(content) {
 
   for (const { line, raw } of tableLines) {
     const cells = raw.split('|').slice(1, -1).map((c) => c.trim()); // drop leading/trailing empty
-    if (cells.length !== 5) {
+    // 5 列 = 未启用 verify 回路的旧/兼容格式；6 列 = 含 lever ③ verify_status
+    if (cells.length !== 5 && cells.length !== 6) {
       errors.push({
         rule: 'nw-row-column-count',
         line,
         cellCount: cells.length,
-        hint: `nw_components 表必须 5 列（nw_id | path | status | is_client | failure_reason）；本行 ${cells.length} 列：${raw.trim()}`,
+        hint: `nw_components 表必须 5 或 6 列（nw_id | path | status | is_client | failure_reason [| verify_status]）；本行 ${cells.length} 列：${raw.trim()}`,
       });
       continue;
     }
-    const [nw_id, path, status, is_client, _failure_reason] = cells;
+    const [nw_id, path, status, is_client, _failure_reason, verify_status] = cells;
     if (!NW_STATUS_ENUM.has(status)) {
       errors.push({
         rule: 'nw-row-status-invalid',
@@ -279,6 +281,16 @@ function validateTemplateSummary(content) {
         value: is_client,
         nw_id,
         hint: `nw_components.is_client 必须为 \`true\` / \`false\` / \`-\`；当前值：\`${is_client}\``,
+      });
+    }
+    // 6 列时校验 verify_status（lever ③）；5 列时该列缺省视为 `-`，跳过
+    if (verify_status !== undefined && !VERIFY_STATUS_ENUM.has(verify_status)) {
+      errors.push({
+        rule: 'nw-row-verify-status-invalid',
+        line,
+        value: verify_status,
+        nw_id,
+        hint: `nw_components.verify_status 非法值 \`${verify_status}\`；合法集合：${[...VERIFY_STATUS_ENUM].join(' / ')}`,
       });
     }
   }

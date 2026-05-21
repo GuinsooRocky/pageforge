@@ -21,6 +21,9 @@
 //     "summary": { total_files, total_imports, total_tracking_calls, total_i18n_keys,
 //                  total_dark_classes, total_rollout_hits, total_business_filters,
 //                  responsive_strategies },
+//     "protected_footprint": [ "tracking_calls" ],  // 二级保险：标记为受保护的足迹类别，
+//                                                   // 严禁登记进 tech-fe.md §4.6 删除授权清单
+//                                                   // （见 pageforge/SKILL.md step 3 限制④）
 //     "files": [ <extractFootprint output per file> ]
 //   }
 
@@ -60,7 +63,13 @@ const summary = {
   })),
 };
 
-const output = { summary, config_used: config, files: fileFootprints };
+// 二级保险：埋点足迹受保护，禁止被 §4.6 删除授权清单登记（见 SKILL.md step 3 限制④）
+const output = {
+  summary,
+  protected_footprint: ['tracking_calls'],
+  config_used: config,
+  files: fileFootprints,
+};
 fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
 
 console.log(`✅ footprint written to ${outputPath}`);

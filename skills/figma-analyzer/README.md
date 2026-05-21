@@ -34,14 +34,16 @@
 |------|------|
 | UI 截图路径 | 设计稿截图的本地文件路径 |
 | Figma URL | 设计稿的 Figma 链接 |
-| Figma Access Token | 通过环境变量 `FIGMA_ACCESS_TOKEN` 设置，或直接提供 |
+| Figma 数据源 | 自动检测：优先 MCP（`mcp__figma__*` / `mcp__figma-desktop__*`），MCP 不可用时 fallback REST（需用户显式提供 token，无硬编码默认 token） |
+
+> **数据源模式**：本 skill 双模式（MCP-preferred / REST-fallback，详见 SKILL.md）。`MCP_FIGMA` / `MCP_FIGMA_DESKTOP` 模式无需 token；仅 `REST` 模式需要 token。项目侧若有 Figma MCP 强制规则（如 onlychat `.claude/rules/figma-mcp.md` 禁用 REST），由调用方决定是否对齐。
 
 ## 工作流程
 
 ### 基础流程
-1. **收集输入** - 获取截图路径、Figma URL、Access Token
+1. **收集输入** - 获取截图路径、Figma URL；自动检测数据源模式（MCP / REST）
 2. **解析 Figma URL** - 提取 file_key 和 node_id
-3. **获取设计树** - 通过 Figma API 获取设计结构数据
+3. **获取设计树** - MCP 模式用 `get_metadata` 递归拉取并 normalize；REST 模式经 Figma API 获取
 4. **分析截图** - 视觉分析 UI 布局、元素类型、层级关系
 5. **关联分析** - 将 Figma 节点类型映射到前端组件概念
 6. **生成架构建议** - 输出组件架构报告
@@ -69,8 +71,10 @@
 
 ## 环境配置
 
+默认走 MCP 模式，无需任何环境变量。仅当 MCP 不可用、需 fallback 到 REST 模式时才需提供 token：
+
 ```bash
-export FIGMA_ACCESS_TOKEN="your-figma-access-token"
+export FIGMA_ACCESS_TOKEN="your-figma-access-token"   # 仅 REST fallback 模式需要
 ```
 
 获取 Figma Access Token: https://www.figma.com/developers/api#access-tokens

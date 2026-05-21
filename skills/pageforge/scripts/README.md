@@ -223,7 +223,7 @@ node schema-validator.mjs --step 4 --template-summary <template-gen-summary.md>
 
 | step | 校验项 | 出错原因示例 |
 |---|---|---|
-| 2 | manifest 每行 status 在 8 个枚举内 | LLM 自创 `已存在` |
+| 2 | manifest 每行 status 在 9 个枚举内 | LLM 自创 `已存在` |
 | 3 | step 2 全部 + 不允许残留 `待 step 3 确认` + tech-fe `模式:` 合法 + mixed 时 pages 非空且 ≥ 2 项 | Phase 2 漏升级中间态 / mixed 写错 |
 | 4 | template-summary 含 `## nw_components 状态表` + 5 列 + status ∈ {ok, skeleton-failed} + path 绝对路径 + is_client ∈ {true, false, -} | 4-B loop 写错列数 / 用相对路径 |
 

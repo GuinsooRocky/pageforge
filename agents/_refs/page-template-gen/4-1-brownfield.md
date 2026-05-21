@@ -2,6 +2,8 @@
 
 > page-template-gen 4.1 路径详细规范。何时 Read：[TECH_FE] `模式: brownfield` 时；mixed 中分发到 brownfield 子页面时。
 
+> **batch=1 下的步骤映射（重要）**：本 _ref 的线性步骤号对应 page-template-gen 的三时间阶段——**步骤 0/1 = 4-A 总览**（一次 dispatch，读整份 [TECH_FE]/[MANIFEST] 建工作清单）；**步骤 2 = 4-B**（每个 status=`不存在，需新建` 的 NW-* 各一次独立 dispatch，**只读该 NW-* 的切片 `NW-xxx.slice.md`**——A3 节取 design_tokens、A1 节取 §4 行、B1 节取项目底座，**不读整份文档、不依赖步骤 1 的全局读**）；**步骤 3/3.5 = 4-C 收尾**。详见 `pageforge/SKILL.md` §B。
+
 ## 目标
 
 对已有项目做外科手术：
@@ -28,11 +30,12 @@
 读 [MANIFEST]，取每个组件的 `status` + `design_tokens` + `placement` + `wraps`：
 - `status: 不存在，需新建` → 按骨架格式新建
 - `status: 内联复用` → 不新建独立文件，按 `inline_usage` 字段在调用方内联
+- `status: 内联重写` → **step 4 跳过该 NW-***：不建独立文件、不留 placeholder div；其全部逻辑由 step 5 在宿主文件（§4.3 改动文件）内就地展开
 - `status: 复用现有` 或 `已有可复用` → 不新建，直接用 `import_from` 路径
 - `status: 已有需改造` 或 `同功能已有` → 评估是否复用，不能复用再新建
 - `figma_node_missing` → 跳过 design token，用 tech-fe.md §5 方案描述
 - `status: 待 step 3 确认` → **fail-fast**：报错并中止，错误信息 `"upstream Phase 2 未完成 status 升级；component=<name>，请回 step 3 重跑 tech-solution-generator Phase 2"`
-- 任何**不在上表的未知 status 值** → **fail-fast**：报错并中止，附"合法 status 全集见 pageforge/SKILL.md §[MANIFEST] status 受控集合；建议默认值：不存在，需新建"。**禁止静默落到 default 分支**
+- 任何**不在上表的未知 status 值** → **fail-fast**：报错并中止，附"合法 status 全集见 pageforge/references/manifest-status.md §M1（权威 JSON：schemas/manifest-status.schema.json）；建议默认值：不存在，需新建"。**禁止静默落到 default 分支**
 
 从 [MANIFEST] 的 `design_tokens` 字段照抄数值，转 Tailwind class：
 
@@ -51,7 +54,7 @@
 
 ### 步骤 2 — 生成新建文件（§4.2 逐条）【4-B component-skeleton 阶段】
 
-> 本步骤对应阶段总览中的 4-B。**按 NW-* loop 单次单文件**处理，禁止单次产多个 NW-*；每个 NW-* 处理结束（无论成功失败）追加一行到 [TEMPLATE_SUMMARY] nw_components 状态表（schema 见上方"通用规则"节）；单条失败按 partial success fallback 处理，**不抛主流程**。
+> 本步骤对应阶段总览中的 4-B，**batch=1 + M4 并行**：每个 NW-* 是一次独立 sub-agent dispatch，**只读该 NW-* 切片 `NW-xxx.slice.md`**（design_tokens 取切片 A3 节，禁读整份 [MANIFEST]/[TECH_FE]）。处理结束（无论成功失败）**不自己写 [TEMPLATE_SUMMARY]**——在 return 三段里带回行数据（nw_id/path/status/is_client/failure_reason），由主 Agent 单一收口写状态表（见 `pageforge/SKILL.md` §B.2）；单条失败按 partial success fallback 处理，**不抛主流程**。N 个 NW-* 由主 Agent K 并发槽并行调度（§B.8）。
 
 对每个新建文件，生成 TSX 骨架并 `Write` 到指定路径：
 
@@ -131,9 +134,9 @@ Bash 校验：`ls {§4.2 中每个路径}` — Write 的文件数必须等于 §
 |---|---|---|
 
 ## nw_components 状态表
-| nw_id | path | status | is_client | failure_reason |
-|---|---|---|---|---|
-| <NW-id> | <abs path> | ok / skeleton-failed | true / false | -（成功） / 一行原因（失败）|
+| nw_id | path | status | is_client | failure_reason | verify_status |
+|---|---|---|---|---|---|
+| <NW-id> | <abs path> | ok / skeleton-failed | true / false | -（成功） / 一行原因（失败）| -（4-B 占位，verify 后主 Agent 回填）/ skipped（skeleton-failed）|
 
 ## 复跑指引（仅 status=skeleton-failed 时填）
 对 nw_components.status=`skeleton-failed` 的 NW-*：手动重跑 step 4-B + step 5-B 单 NW-*，重跑成功后改 status=`ok`，再重跑一次 step 4-C 收尾 + step 5-C postcondition。

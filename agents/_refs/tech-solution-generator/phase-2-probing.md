@@ -49,9 +49,26 @@ grep -r "关键词" "$PROJECT_SRC" --include="*.tsx" --include="*.ts" -l
 ### 检查方式
 
 1. 读 [MANIFEST] 里该组件的 `wraps` 字段（step 2 已标注它包装了哪个现有组件）
-   - **`wraps` 字段为空 / 不存在**（greenfield 场景常见）→ 直接结论 `需新建文件`，跳过判断表（无现有组件可包装就无"内联复用"可能）
-2. 读 [CODE_BASELINE] M4，确认被包装组件的 props 接口
-3. 逐条对照下方判断表，得出唯一结论
+   - **`wraps` 字段非空** → 读 [CODE_BASELINE] M4 确认被包装组件 props，进第 3 步判断表
+   - **`wraps` 字段为空 / 不存在** → **不能直接判 `需新建文件`**。`wraps` 空只代表 step 2 visual-analyzer 没标出复用关系，**不代表项目里没有现成组件**。必须先做第 2 步主动复用扫描：
+     - **判断该 NW-* 是不是"通用能力型"**（编辑器 / 输入框 / 弹窗 / 抽屉 / 工具栏 / 图标 / chip / tooltip / tab / 表单字段 / 上传控件 等）
+     - 是 → 按能力语义 grep `[CODE_BASELINE]` M4 + 整个 source_root 找现成实现（按"它提供什么能力"搜，不按 NW-* 名搜）。找到 → 回填 `wraps` 后进第 3 步判断表；确认无现成 → 才判 `需新建文件`
+     - 否（纯业务定制、greenfield 无现有代码）→ 判 `需新建文件`
+2. （wraps 空时）执行上述主动复用扫描
+3. 读 [CODE_BASELINE] M4，确认被包装组件的 props 接口
+4. 逐条对照下方判断表，得出唯一结论
+
+> 根因：原"wraps 空 → 直接判需新建、跳过判断表"是个洞 —— 它把"visual-analyzer 没找到映射"误当成"项目里没有现成组件"，导致已 ship 的通用组件被当 net-new 重造。wraps 空是**触发复用扫描的信号**，不是"需新建"的结论。
+
+### 复用探测要扫 hook / util / 样式常量层，不只组件层（强制）
+
+E 类探测**不能只盯 `components/`**。判定"需新建文件"后，仍要做一轮**实现层复用扫描**，在 `e_probe` / [TECH_FE] §5 里登记可复用的项目既有资产：
+
+- **hook 层**：按功能语义（上传 / 校验 / 裁剪 / 轮询 / 防抖 等）grep `[CODE_BASELINE]` M2 的 `hooks/` 目录，而非按组件名。例：图像上传字段该复用 `useUploadFile.getImgUrlFromS3`（签名 URL + 上传 + retry）+ `hooks/image-upload/validation`，不是从零写上传逻辑。
+- **util 层**：grep `utils/` 找既有工具函数（解析 / 格式化 / 裁剪算法等）。
+- **样式常量层**：表单 / 输入类组件，grep 项目既有的 className 常量（如 `FLAT_INPUT_CN` 之类），优先复用，不要凭 Figma 估 padding/spacing 数值。
+
+> 根因：复用探测只指组件级引用、漏 hook/util/样式常量层，会从零重写已有能力 + padding 不对齐项目约定。判定"需新建文件"≠"内部逻辑全部新写"，新文件内部仍应最大化复用既有 hook/util/常量。
 
 ### 判断表（逐条检查"需新建文件"条件，任意命中 → 需新建文件；全部不命中 → 内联复用）
 
