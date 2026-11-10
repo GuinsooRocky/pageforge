@@ -375,7 +375,7 @@ status: present | absent | partial
 ```
 User: 给 onlychat 项目跑 baseline，scope hint = [tooltip, toast, modal, audio]
 Skill:
-  - PROJECT_ROOT = /Users/lengmo/Desktop/cmm/onlychat-agg-tuning
+  - PROJECT_ROOT = ~/Desktop/cmm/onlychat-agg-tuning
   - 探测 → next 13 / jotai / tailwind+css-modules / trpc+grpc / next-intl
   - 扫 4 个语义 + state + interfaces + tokens + rules
   - 输出 .claude/docs/code-baseline.md

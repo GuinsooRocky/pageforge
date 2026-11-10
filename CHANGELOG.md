@@ -266,7 +266,7 @@ SKILL.md 从 267 行（含全部横切约束）→ **176 行**（仅流程主干
 ## new0.0.3（2026-05-11）
 
 > **触发原因**：2026-05-11 用世界卡 MVP PRD（1500+ 行 ch8 全量）试运行 new0.0.2，sub-agent prd-clarifier 因 context bloat 连挂 2 次（cert / socket 错误），共烗 16 min 三手 token 仍无产物。
-> **根因诊断报告**：`/Users/lengmo/Desktop/cmm/agg/evolution/05.11-fe-workflow-new0.0.2-诊断.md`
+> **根因诊断报告**：`~/Desktop/cmm/agg/evolution/05.11-fe-workflow-new0.0.2-诊断.md`
 > **本次落地 P0**：第 1 + 第 2 条建议
 
 ---
